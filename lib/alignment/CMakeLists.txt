@@ -1,0 +1,19 @@
+file (GLOB CAPTURE_HEADER "*.h")
+#message( ${CAPTURE_HEADER} )
+#message( ${CMAKE_CURRENT_SOURCE_DIR} )
+
+AUX_SOURCE_DIRECTORY(
+    ${CMAKE_CURRENT_SOURCE_DIR} 
+    CAPTURE_SRC
+)
+
+
+#message( ${CAPTURE_SRC} )
+add_library(
+    alignment_lib 
+    ${CAPTURE_SRC} 
+    ${CAPTURE_HEADER} 
+)
+
+
+SET_TARGET_PROPERTIES(alignment_lib PROPERTIES LINKER_LANGUAGE CXX)
