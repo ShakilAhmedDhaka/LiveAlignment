@@ -250,6 +250,8 @@ void Apriltags::vis_apriltags(cv::Mat& frame, std::vector<GLOBAL_HELPERS::Global
 void Apriltags::get_tags(cv::Mat& frame, std::vector<GLOBAL_HELPERS::Global_helpers::TagPoints>& aprl_tags,
 	int width_offset, int height_offset, int f_serial)
 {
+	width_offset = std::max(width_offset, 1);
+	height_offset = std::max(height_offset, 1);
 	cv::Mat gray;
 	cvtColor(frame, gray, cv::COLOR_BGRA2GRAY);
 	image_u8_t im{ gray.cols, gray.rows, gray.cols, gray.data };

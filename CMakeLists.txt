@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.1.0)
 
-project(capture_alignment)
+project(Live_Alignment)
 
 set (CMAKE_PREFIX_PATH "C:/Qt5/5.12.2/msvc2017_64")
 
