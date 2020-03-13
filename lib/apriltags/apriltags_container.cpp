@@ -287,25 +287,18 @@ void Apriltags::get_tags(cv::Mat& frame, std::vector<GLOBAL_HELPERS::Global_help
 	zarray_destroy(detections);
 }
 
+
+void Apriltags::filter_tag(std::vector<GLOBAL_HELPERS::Global_helpers::TagPoints>& tags)
+{
+	for (int i = 0; i < tags.size(); i++)
+	{
+		if (tags[i].cloud_index == -1) tags.erase(tags.begin() + i);
+	}
+}
+
 void Apriltags::common_tags(std::vector<GLOBAL_HELPERS::Global_helpers::TagPoints>& tags1, 
 	std::vector<GLOBAL_HELPERS::Global_helpers::TagPoints>& tags2)
 {
-	std::cout << "before filtering" << std::endl;
-	std::cout << "tags1 size: " << tags1.size() << std::endl;
-	std::cout << "tags2 size: " << tags2.size() << std::endl;
-
-	for (int i = 0; i < tags1.size(); i++)
-	{
-		if(tags1[i].cloud_index == -1) tags1.erase(tags1.begin() + i);
-	}
-
-	for (int i = 0; i < tags2.size(); i++)
-	{
-		if (tags2[i].cloud_index == -1) tags2.erase(tags2.begin() + i);
-	}
-
-	sort(tags1.begin(), tags1.end());
-	sort(tags2.begin(), tags2.end());
 	for (int i = 0; i < tags1.size(); i++)
 	{
 		bool rem = true;

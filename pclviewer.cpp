@@ -15,6 +15,8 @@ pclviewer::pclviewer(int argc, char** argv, QWidget *parent) :
 
 	this->setWindowTitle ("PCL viewer");
 
+	memset(points, 0, sizeof(points));
+
 	transform_align.m_s = 1;
 	transform_align.m_R = Eigen::Matrix<double, 3, 3>::Identity();
 	transform_align.m_t.resize(3);
@@ -164,47 +166,69 @@ std::map<int, std::vector<double> > pclviewer::getFeaturePoints(Capture& capture
 {
 	std::map<int, std::vector<double> > tagsPresent;
 	
-	for (int i = 0; i < tags.size(); i++)
+	for (int i = 0; i < tags.size(); i+=4)
 	{
-		if (tagsPresent.find(tags[i].tag) == tagsPresent.end())
+		int corners_count = 0;
+		int indx_corners_count = tags[i].tag * 14;
+		for (int j = 0; j < 4; j++)
 		{
-			tagsPresent[tags[i].tag].push_back(0.0);
-			tagsPresent[tags[i].tag].push_back(tags[i].centerx );
-			tagsPresent[tags[i].tag].push_back(tags[i].centery );
-		}
-		if (capture.project_colorcam_to_depthcam(tags[i].point, tags[i].cloud_index))
-		{
-			if (cloud_aligned->points.at(tags[i].cloud_index).z == 0)
+			if (tagsPresent.find(tags[i+j].tag) == tagsPresent.end())
 			{
-				std::cout << "z==0" << std::endl;
-				tags[i].cloud_index = -1;
-				tags[i].point3D[0] = -1;
-				tags[i].point3D[1] = -1;
-				tags[i].point3D[2] = -1;
-		
+				tagsPresent[tags[i+j].tag].push_back(0.0);
+				tagsPresent[tags[i+j].tag].push_back(tags[i+j].centerx);
+				tagsPresent[tags[i+j].tag].push_back(tags[i+j].centery);
+			}
+			if (capture.project_colorcam_to_depthcam(tags[i+j].point, tags[i+j].cloud_index))
+			{
+				if (cloud_aligned->points.at(tags[i+j].cloud_index).z == 0)
+				{
+					std::cout << "z==0" << std::endl;
+					tags[i+j].cloud_index = -1;
+					tags[i+j].point3D[0] = -1;
+					tags[i+j].point3D[1] = -1;
+					tags[i+j].point3D[2] = -1;
 
-				//tagsPresent[tags[i].tag][0] = 0.0;
+
+					//tagsPresent[tags[i].tag][0] = 0.0;
+				}
+				else
+				{
+					pcl::PointXYZRGB cloud_point = cloud_aligned->points.at(tags[i+j].cloud_index);
+					tags[i+j].point3D[0] = cloud_point.x;
+					tags[i+j].point3D[1] = cloud_point.y;
+					tags[i+j].point3D[2] = cloud_point.z;
+
+					tagsPresent[tags[i+j].tag][0] = tagsPresent[tags[i+j].tag][0] + 1.0;
+					corners_count++;
+				}
 			}
 			else
 			{
-				pcl::PointXYZRGB cloud_point = cloud_aligned->points.at(tags[i].cloud_index);
-				tags[i].point3D[0] = cloud_point.x;
-				tags[i].point3D[1] = cloud_point.y;
-				tags[i].point3D[2] = cloud_point.z;
+				std::cout << "picked an nan depth point" << std::endl;
+				tags[i+j].cloud_index = -1;
+				tags[i+j].point3D[0] = -1;
+				tags[i+j].point3D[1] = -1;
+				tags[i+j].point3D[2] = -1;
 
-				tagsPresent[tags[i].tag][0] = tagsPresent[tags[i].tag][0] + 1.0;
+				//tagsPresent[tags[i].tag][0] = 0.0;
 			}
 		}
-		else
+
+		points[indx_corners_count] = 1;
+
+		if (corners_count > points[indx_corners_count + 1])
 		{
-			std::cout << "picked an nan depth point" << std::endl;
-			tags[i].cloud_index = -1;
-			tags[i].point3D[0] = -1;
-			tags[i].point3D[1] = -1;
-			tags[i].point3D[2] = -1;
-			
-			//tagsPresent[tags[i].tag][0] = 0.0;
+			points[indx_corners_count + 1] = corners_count;
+			for (int j = 0; j < 4; j++)
+			{
+				for (int k = 0; k < 3; k++)
+				{
+					points[indx_corners_count + 2 + j * 3 + k] = tags[i + j].point3D[k];
+				}
+			}
 		}
+		
+		
 	}
 
 	return tagsPresent;
@@ -222,8 +246,10 @@ void pclviewer::add_cloud_buttonPressed()
 		viewer->addPointCloud(cloud, "cloud");
 
 		tags.resize(1);
-		apriltags.get_tags(capture.color_mat, tags[0]);
+		apriltags.get_tags(capture.color_mat, tags[0], 1, 1,0);
 		getFeaturePoints(capture, tags[0]);
+		apriltags.filter_tag(tags[0]);
+		sort(tags[0].begin(), tags[0].end());
 
 		cur_ser++;
 	}
@@ -244,8 +270,10 @@ void pclviewer::add_cloud_buttonPressed()
 
 
 		tags.resize(cur_ser + 1);
-		apriltags.get_tags(*captured_color, tags[cur_ser]);
+		apriltags.get_tags(*captured_color, tags[cur_ser], 1, 1, cur_ser);
 		getFeaturePoints(capture, tags[cur_ser]);
+		apriltags.filter_tag(tags[cur_ser]);
+		sort(tags[cur_ser].begin(), tags[cur_ser].end());
 		apriltags.common_tags(tags[cur_ser-1], tags[cur_ser]);
 		apriltags.rearrange_tags(tags[cur_ser-1], tags[cur_ser], different_tags);
 		std::cout << "number of common tags: " << tags[cur_ser].size() << std::endl;

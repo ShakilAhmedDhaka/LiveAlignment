@@ -46,6 +46,10 @@ class Apriltags
 		void get_tags(cv::Mat& frame, std::vector<GLOBAL_HELPERS::Global_helpers::TagPoints>& aprl_tags, 
 			int width_offset=0, int height_offset=0, int f_serial = -1);
 
+		
+		// remove any tag that does not have correspondence with 2d (not present in color image)
+		void filter_tag(std::vector<GLOBAL_HELPERS::Global_helpers::TagPoints>& tags);
+		
 		// keep the common tags from both scenes. remove the rest
 		void common_tags(std::vector<GLOBAL_HELPERS::Global_helpers::TagPoints>& tags1, std::vector<GLOBAL_HELPERS::Global_helpers::TagPoints>& tags2);
 

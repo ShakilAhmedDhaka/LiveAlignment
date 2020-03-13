@@ -19,6 +19,8 @@
 #include "alignment.h"
 
 
+#define NUMBER_OF_TAGS 100
+
 namespace Ui {
 class pclviewer;
 }
@@ -66,6 +68,9 @@ protected:
 	std::vector< std::vector<GLOBAL_HELPERS::Global_helpers::TagPoints> > tags;
 	std::vector<TBasic::RSAlign> aligns;
 	TBasic::RSAlign transform_align;
+
+	short points[NUMBER_OF_TAGS*14+5];
+
 	int different_tags;
 	QImage video_image;
 	cv::Mat color_show;
