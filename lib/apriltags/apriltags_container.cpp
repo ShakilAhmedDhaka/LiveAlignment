@@ -15,7 +15,7 @@ Apriltags::Apriltags()
 
 Apriltags::Apriltags(const char* family)
 {
-    // setting apriltag input parameters for user
+	// setting apriltag input parameters for user
 	getopt = getopt_create();
 	tf = NULL;
 	td = apriltag_detector_create();
@@ -184,6 +184,7 @@ void Apriltags::vis_apriltags(cv::Mat& frame, std::vector<GLOBAL_HELPERS::Global
 		cv::Point bottomRight = cv::Point(aprl_tags[i + 1].point.x / width_offset, aprl_tags[i + 1].point.y / height_offset);
 		cv::Point topRight = cv::Point(aprl_tags[i + 2].point.x / width_offset, aprl_tags[i + 2].point.y / height_offset);
 		cv::Point topLeft = cv::Point(aprl_tags[i + 3].point.x / width_offset, aprl_tags[i + 3].point.y / height_offset);
+		//cv::Point center = cv::Point(aprl_tags[i].centerx / width_offset, aprl_tags[i].centery / height_offset);
 
 		cv::Vec4b red = cv::Vec4b(0, 0, 255, 255);
 		cv::Vec4b green = cv::Vec4b(0, 255, 0, 255);
@@ -239,8 +240,8 @@ void Apriltags::vis_apriltags(cv::Mat& frame, std::vector<GLOBAL_HELPERS::Global
 			int baseline;
 			cv::Size textsize = cv::getTextSize(text, fontface, fontscale, 2,
 				&baseline);
-			putText(frame, text, cv::Point(aprl_tags[i].centerx - textsize.width / 2,
-				aprl_tags[i].centery + textsize.height / 2),
+			putText(frame, text, cv::Point( (aprl_tags[i].centerx / width_offset) - textsize.width / 2,
+				(aprl_tags[i].centery / height_offset) + textsize.height / 2),
 			fontface, fontscale, cv::Scalar(0xff, 0x99, 0), 2);
 		}
 		

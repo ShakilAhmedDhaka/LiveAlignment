@@ -20,6 +20,9 @@
 
 
 #define NUMBER_OF_TAGS 100
+#define TAGS_CORNERS 4
+#define TAG_CORNER_BUFFER 4
+#define TAG_BUFFER 16
 
 namespace Ui {
 class pclviewer;
@@ -27,11 +30,11 @@ class pclviewer;
 
 class pclviewer : public QMainWindow
 {
-    Q_OBJECT
+	Q_OBJECT
 
 public:
-    explicit pclviewer(int argc, char** argv, QWidget *parent = nullptr);
-    ~pclviewer();
+	explicit pclviewer(int argc, char** argv, QWidget *parent = nullptr);
+	~pclviewer();
 
 public slots:
 	void processFrameAndUpdateGUI();
@@ -48,6 +51,12 @@ private:
 	//  if for one tag, some of its corners is not present in the depth then it will have false. If all the corners are present then,
 	// it will have true as a value.
 	std::map<int, std::vector<double> > getFeaturePoints(Capture& capture, std::vector<GLOBAL_HELPERS::Global_helpers::TagPoints>& tags);
+
+
+	// Input: current frame
+	// Goal: Store the aligned points in "points" an array for faster access of tags( order 1 ) later on
+	// Return: None
+	void storeMarkersAligned(int current_serial);
 	
 protected:
 	
@@ -69,7 +78,13 @@ protected:
 	std::vector<TBasic::RSAlign> aligns;
 	TBasic::RSAlign transform_align;
 
-	short points[NUMBER_OF_TAGS*14+5];
+
+
+	// For each TAG: Find first index by Tag ID (Tag.tag) * 14
+	// First Index: 1 / 0. Denotes if the tag is already stored
+	// Second index: How many corners were found
+	// The next twelve index contains 4 3D points for 4 corners
+	short points[NUMBER_OF_TAGS * TAGS_CORNERS * TAG_CORNER_BUFFER + 5];
 
 	int different_tags;
 	QImage video_image;

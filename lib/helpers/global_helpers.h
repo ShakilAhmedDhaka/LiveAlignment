@@ -103,13 +103,13 @@ public:
 	};
 
 
-    Global_helpers();
-    ~Global_helpers();
+	Global_helpers();
+	~Global_helpers();
 
 
 	void set_path(std::string directory);
 	// reads all the filename in given directory and stores the names in vector
-    static void read_directory(const std::string& name, std::vector<std::string>& v);
+	static void read_directory(const std::string& name, std::vector<std::string>& v);
 	// returns the maximum among the number of pointclouds or color or depth images
 	static int get_serial(std::string directory);
 	// generates a filename suitable to save next bunch of images and pointclouds and meshes
@@ -131,9 +131,9 @@ public:
 
 private:
 	std::string path;
-    std::chrono::high_resolution_clock::time_point cur_time;
-    std::string now;
-    
+	std::chrono::high_resolution_clock::time_point cur_time;
+	std::string now;
+	
 
 };
 

@@ -8,8 +8,8 @@
 
 
 pclviewer::pclviewer(int argc, char** argv, QWidget *parent) :
-    QMainWindow(parent),
-    ui(new Ui::pclviewer), cur_ser(0), argc(argc), argv(argv)
+	QMainWindow(parent),
+	ui(new Ui::pclviewer), cur_ser(0), argc(argc), argv(argv)
 {
 	ui->setupUi(this);
 
@@ -76,7 +76,7 @@ pclviewer::pclviewer(int argc, char** argv, QWidget *parent) :
 
 pclviewer::~pclviewer()
 {
-    delete ui;
+	delete ui;
 }
 
 
@@ -122,7 +122,7 @@ void pclviewer::processFrameAndUpdateGUI()
 	{
 		if (it->second[0] - double(MINIMUM_CORNERS_IN_A_TAG) < -.1)
 		{
-			apriltags.vis_apriltags(color_show, atags, width_offset, height_offset, true);
+			apriltags.vis_apriltags(color_show, atags, width_offset, height_offset, true, false, false, true);
 		}
 		else
 		{
@@ -213,25 +213,56 @@ std::map<int, std::vector<double> > pclviewer::getFeaturePoints(Capture& capture
 				//tagsPresent[tags[i].tag][0] = 0.0;
 			}
 		}
-
-		points[indx_corners_count] = 1;
-
-		if (corners_count > points[indx_corners_count + 1])
-		{
-			points[indx_corners_count + 1] = corners_count;
-			for (int j = 0; j < 4; j++)
-			{
-				for (int k = 0; k < 3; k++)
-				{
-					points[indx_corners_count + 2 + j * 3 + k] = tags[i + j].point3D[k];
-				}
-			}
-		}
-		
 		
 	}
 
 	return tagsPresent;
+}
+
+
+
+
+void pclviewer::storeMarkersAligned(int current_frame)
+{
+	std::vector<GLOBAL_HELPERS::Global_helpers::TagPoints> tag = tags[current_frame];
+	std::vector<Eigen::Vector3d> points_3d, fPoints;
+	loadfeaturepoints(tag, points_3d);
+	
+	if (current_frame == 0)
+	{
+		loadfeaturepoints(tag, fPoints);
+	}
+	
+	
+	apply_scale(aligns[current_frame].m_s, points_3d);
+	aligns[current_frame].apply(points_3d, fPoints);
+	
+
+
+	for (int i = 0; i < tag.size(); i ++)
+	{
+		if (tag[i].cloud_index != -1)
+		{
+			int startIndex = tag[i].tag * TAG_BUFFER + tag[i].pos * TAG_CORNER_BUFFER;
+			
+			try
+			{
+				if (points[startIndex] == 0)
+				{
+					for (int j = 1; j < 4; j++)
+					{
+						points[startIndex + j] = fPoints[i][j - 1];
+					}
+
+					points[startIndex] = 1;
+				}
+			}
+			catch (int e)
+			{
+				throw("Tag ID is out of bound. Try increasing the size of the array 'points'");
+			}
+		}
+	}
 }
 
 
@@ -248,9 +279,9 @@ void pclviewer::add_cloud_buttonPressed()
 		tags.resize(1);
 		apriltags.get_tags(capture.color_mat, tags[0], 1, 1,0);
 		getFeaturePoints(capture, tags[0]);
-		apriltags.filter_tag(tags[0]);
+		//apriltags.filter_tag(tags[0]);
 		sort(tags[0].begin(), tags[0].end());
-
+		storeMarkersAligned(0);
 		cur_ser++;
 	}
 	else
@@ -259,6 +290,7 @@ void pclviewer::add_cloud_buttonPressed()
 
 		clouds.resize(cur_ser + 1);
 		clouds[cur_ser].reset(new pcl::PointCloud<pcl::PointXYZRGB>(*(cloud_aligned)));
+		aligns.push_back(transform_align);
 		
 		boost::shared_ptr<pcl::PointCloud<pcl::PointXYZRGB>> transforming;
 		std::vector<Eigen::Vector3d> transformed;
@@ -272,15 +304,42 @@ void pclviewer::add_cloud_buttonPressed()
 		tags.resize(cur_ser + 1);
 		apriltags.get_tags(*captured_color, tags[cur_ser], 1, 1, cur_ser);
 		getFeaturePoints(capture, tags[cur_ser]);
-		apriltags.filter_tag(tags[cur_ser]);
+		//apriltags.filter_tag(tags[cur_ser]);
 		sort(tags[cur_ser].begin(), tags[cur_ser].end());
-		apriltags.common_tags(tags[cur_ser-1], tags[cur_ser]);
-		apriltags.rearrange_tags(tags[cur_ser-1], tags[cur_ser], different_tags);
+		different_tags = 0;
+		for (int i = 0; i < tags[cur_ser].size(); i++)
+		{
+			if (tags[cur_ser][i].cloud_index != -1)
+			{
+				int startIndex = tags[cur_ser][i].tag * TAG_BUFFER + tags[cur_ser][i].pos * TAG_CORNER_BUFFER;
+				try
+				{
+					if (points[startIndex] == 1)
+					{
+						Eigen::Vector3d pts1 = Eigen::Vector3d(points[startIndex + 1], points[startIndex + 2], points[startIndex + 3]);
+						aligns[cur_ser].m_points2.push_back(pts1);
+
+						Eigen::Vector3d pts2 = tags[cur_ser][i].point3D;
+						aligns[cur_ser].m_points1.push_back(pts2);
+
+						different_tags++;
+					}
+				}
+				catch (int e)
+				{
+					throw("Tag ID is out of bound. Try increasing the size of the array 'points'");
+				}
+				
+			}
+		}
+		//apriltags.common_tags(tags[cur_ser-1], tags[cur_ser]);
+		//apriltags.rearrange_tags(tags[cur_ser-1], tags[cur_ser], different_tags);
+
 		std::cout << "number of common tags: " << tags[cur_ser].size() << std::endl;
 
-		aligns.push_back(transform_align);
-		loadfeaturepoints(tags[cur_ser-1], aligns[cur_ser].m_points2);
-		loadfeaturepoints(tags[cur_ser], aligns[cur_ser].m_points1);
+		
+		//loadfeaturepoints(tags[cur_ser-1], aligns[cur_ser].m_points2);
+		//loadfeaturepoints(tags[cur_ser], aligns[cur_ser].m_points1);
 		
 		aligns[cur_ser].compute_scale();
 
@@ -290,22 +349,23 @@ void pclviewer::add_cloud_buttonPressed()
 		// computing the transformation matrix
 		std::cout << "Applying transformation" << std::endl;
 		aligns[cur_ser].compute_trans();
-		aligns[cur_ser].save("../outputs/mat.txt");
+		//aligns[cur_ser].save("../outputs/mat.txt");
 		//aligns[i+1].prune(different_tags, different_tags);
 		//aligns[cur_ser + 1].save(tm_name.c_str());
 		apply_scale(1.0f / aligns[cur_ser].m_s, vertices_3d2);
 
-		for (int j = cur_ser; j > 0; j--)
-		{
-			apply_scale(aligns[j].m_s, vertices_3d2);
-			aligns[j].apply(vertices_3d2, transformed);
-			vertices_3d2 = transformed;
-		}
+		
+		apply_scale(aligns[cur_ser].m_s, vertices_3d2);
+		aligns[cur_ser].apply(vertices_3d2, transformed);
+		//vertices_3d2 = transformed;
+		
 
 		GLOBAL_HELPERS::eigenVector_to_pclCloud(transformed, transforming);
 		GLOBAL_HELPERS::eigenVector_color_to_pclCloud(color_vertices, transforming);
 
 		*cloud += *transforming;
+
+		storeMarkersAligned(cur_ser);
 		cur_ser++;
 	}
 

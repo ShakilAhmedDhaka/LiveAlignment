@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 3.1.0)
 
 project(Live_Alignment)
 
-set (CMAKE_PREFIX_PATH "C:/Qt5/5.12.2/msvc2017_64")
+#set (CMAKE_PREFIX_PATH "C:/Qt5/5.12.2/msvc2017_64")
 
 # will the cmake handle qt moc preprocessor automatically
 set(CMAKE_AUTOMOC ON)
@@ -20,16 +20,17 @@ find_package(OpenCV REQUIRED )
 include_directories(${OpenCV_INCLUDE_DIRS})
 
 
-find_package(PCL 1.8.0 REQUIRED)
+find_package(PCL 1.10.0 REQUIRED)
 # Additional Include Directories
 include_directories(${PCL_INCLUDE_DIRS})
+include_directories(${FLANN_INCLUDE_DIR})
+
 include_directories(${CMAKE_CURRENT_SOURCE_DIR})
 include_directories(${CMAKE_CURRENT_BINARY_DIR})
 # Preprocessor Definitions
 add_definitions(${PCL_DEFINITIONS})
 # Additional Library Directories
 link_directories(${PCL_LIBRARY_DIRS})
-
 
 find_package(VTK REQUIRED)
 # Load VTK Settings
