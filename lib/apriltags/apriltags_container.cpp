@@ -175,7 +175,8 @@ const char* Apriltags::set_tag_param(const char* family)
 
 void Apriltags::vis_apriltags(cv::Mat& frame, std::vector<GLOBAL_HELPERS::Global_helpers::TagPoints>& aprl_tags,
 	int width_offset, int height_offset,
-	bool drawMiddleSquare, bool showTagID, bool drawBorder, bool drawCornerBlocks)
+	bool drawMiddleSquare, bool showTagID, bool drawBorder, bool drawCornerBlocks,
+	bool correctAngle)
 {
 	
 	for (int i = 0; i+3 < aprl_tags.size(); i+=4)
@@ -246,6 +247,21 @@ void Apriltags::vis_apriltags(cv::Mat& frame, std::vector<GLOBAL_HELPERS::Global
 		}
 		
 	}
+
+
+	cv::Point center = cv::Point(aprl_tags[0].centerx / width_offset, aprl_tags[0].centery / height_offset);
+	int blockRadiusColor = 5;
+	if (correctAngle)
+	{
+		cv::Vec4b green = cv::Vec4b(0, 255, 0, 255);
+		VISH::mark_color_mat(frame, center, green, blockRadiusColor);
+	}
+	else if(drawMiddleSquare == false)
+	{
+		cv::Vec4b yellow = cv::Vec4b(0, 255, 255, 255);
+		VISH::mark_color_mat(frame, center, yellow, blockRadiusColor);
+	}
+	
 }
 
 void Apriltags::get_tags(cv::Mat& frame, std::vector<GLOBAL_HELPERS::Global_helpers::TagPoints>& aprl_tags,

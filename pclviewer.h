@@ -67,6 +67,7 @@ protected:
 	
 	boost::shared_ptr<pcl::PointCloud<pcl::PointXYZRGB>> cloud_aligned;
 	boost::shared_ptr<pcl::PointCloud<pcl::PointXYZRGB>> cloud;
+	boost::shared_ptr<pcl::PointCloud<pcl::PointXYZRGB>> cloudFiltered;
 	std::vector< boost::shared_ptr<pcl::PointCloud<pcl::PointXYZRGB>> > clouds;
 
 	cv::Mat* captured_color;

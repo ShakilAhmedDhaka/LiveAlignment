@@ -2,9 +2,12 @@
 #include "ui_pclviewer.h"
 #include "visualizer.h"
 
+#include <pcl/filters/voxel_grid.h>
+
 
 
 #define MINIMUM_CORNERS_IN_A_TAG 3
+#define PI_VAL 3.14159265
 
 
 pclviewer::pclviewer(int argc, char** argv, QWidget *parent) :
@@ -28,7 +31,6 @@ pclviewer::pclviewer(int argc, char** argv, QWidget *parent) :
 	cloud_aligned = boost::shared_ptr<pcl::PointCloud<pcl::PointXYZRGB>>();
 	cloud = boost::shared_ptr<pcl::PointCloud<pcl::PointXYZRGB>>();
 	// The number of points in the cloud
-	capture;
 	capture.capture_frame();
 	//cloud = capture.cloud;
 	cloud_aligned = capture.cloud;
@@ -109,7 +111,7 @@ void pclviewer::processFrameAndUpdateGUI()
 	//if (captured_color->size().height % 2) height_offset++;
 	
 
-	cv::resize(*captured_color, color_show, cv::Size(captured_color->size().width/2, captured_color->size().height/2) );
+	cv::resize(*captured_color, color_show, cv::Size(captured_color->size().width/width_offset, captured_color->size().height/height_offset) );
 
 	std::vector<GLOBAL_HELPERS::Global_helpers::TagPoints> atags;
 	apriltags.get_tags(color_show, atags, width_offset, height_offset);
@@ -118,7 +120,64 @@ void pclviewer::processFrameAndUpdateGUI()
 	std::map<int, std::vector<double> > tagsPresent = getFeaturePoints(capture, atags);
 	
 	cv::Vec4b red = cv::Vec4b(0, 0, 255, 255);
-	for (std::map<int, std::vector<double> >::iterator it = tagsPresent.begin(); it != tagsPresent.end(); it++)
+
+
+	//std::cout << "*********Begin Coloring**********" << std::endl;
+	for (int i = 0; i+3 < atags.size(); i += 4)
+	{
+		bool isCorrectAngle = false;
+
+		if (tagsPresent.find(atags[i].tag) == tagsPresent.end())	continue;
+		
+		if (tagsPresent[atags[i].tag][0] < MINIMUM_CORNERS_IN_A_TAG)
+		{
+			//std::cout << "********* Not Enough Tags **********" << std::endl;
+			apriltags.vis_apriltags(color_show, std::vector<GLOBAL_HELPERS::Global_helpers::TagPoints> (atags.begin()+i, atags.begin()+i+4), 
+				width_offset, height_offset, true, false, false, true, isCorrectAngle);
+		}
+		else
+		{
+			//std::cout << "********* See If Align **********" << std::endl;
+			if (MINIMUM_CORNERS_IN_A_TAG >= 3)
+			{
+				std::vector<GLOBAL_HELPERS::Global_helpers::TagPoints> threePoints;
+				if (atags[i].cloud_index != -1)	threePoints.push_back(atags[i]);
+				if (atags[i + 1].cloud_index != -1)	threePoints.push_back(atags[i + 1]);
+				if (atags[i + 2].cloud_index != -1)	threePoints.push_back(atags[i + 2]);
+				if (atags[i + 3].cloud_index != -1)	threePoints.push_back(atags[i + 3]);
+
+				if (threePoints.size() > 3)	threePoints.pop_back();
+
+				//std::cout << "**************** Points Loaded ******************" << std::endl;
+				//std::cout << "**************** threePoints size: "<< threePoints.size() << std::endl;
+				if (threePoints.size() == 3)
+				{
+					Eigen::Vector3d vec1 = threePoints[1].point3D - threePoints[0].point3D;
+					Eigen::Vector3d vec2 = threePoints[2].point3D - threePoints[0].point3D;
+
+					//std::cout << "**************** Two Vectors ******************" << std::endl;
+					Eigen::Vector3d sNormal = vec1.cross(vec2);
+					sNormal = sNormal.normalized();
+
+					//std::cout << "**************** Normalized ******************" << std::endl;
+
+					Eigen::Vector3d zAxis = Eigen::Vector3d(0, 0, -1);
+					double angle = (acos(zAxis.dot(sNormal)) * 180.0) /  PI_VAL;
+
+					if (angle <= 30) isCorrectAngle = true;
+					//std::cout << "****************Angle: " << angle << std::endl;
+				}
+
+				threePoints.clear();
+			}
+			
+			apriltags.vis_apriltags(color_show, std::vector<GLOBAL_HELPERS::Global_helpers::TagPoints>(atags.begin() + i, atags.begin() + i + 4), 
+				width_offset, height_offset, false, false, false, true, isCorrectAngle);
+		}
+	}
+
+	//std::cout << "*********End Coloring**********" << std::endl;
+	/*for (std::map<int, std::vector<double> >::iterator it = tagsPresent.begin(); it != tagsPresent.end(); it++)
 	{
 		if (it->second[0] - double(MINIMUM_CORNERS_IN_A_TAG) < -.1)
 		{
@@ -128,7 +187,7 @@ void pclviewer::processFrameAndUpdateGUI()
 		{
 			apriltags.vis_apriltags(color_show, atags, width_offset, height_offset, false, false, false, true);
 		}
-	}
+	}*/
 	
 
 	cv::resize(color_show, color_show, cv::Size(ui->color_video_label->width(), ui->color_video_label->height()));
@@ -273,7 +332,12 @@ void pclviewer::add_cloud_buttonPressed()
 	{
 		cloud.reset(new pcl::PointCloud<pcl::PointXYZRGB>(*(cloud_aligned)));
 		clouds.resize(1);
-		clouds[0].reset(new pcl::PointCloud<pcl::PointXYZRGB>(*(cloud)));
+		clouds[0].reset(new pcl::PointCloud<pcl::PointXYZRGB>(*(cloud_aligned)));
+		
+		pcl::VoxelGrid< pcl::PointXYZRGB > sor;
+		sor.setInputCloud( cloud );
+		sor.setLeafSize(10.00f, 10.00f, 10.00f);
+		sor.filter(*cloud);
 		viewer->addPointCloud(cloud, "cloud");
 
 		tags.resize(1);
@@ -292,6 +356,7 @@ void pclviewer::add_cloud_buttonPressed()
 		clouds[cur_ser].reset(new pcl::PointCloud<pcl::PointXYZRGB>(*(cloud_aligned)));
 		aligns.push_back(transform_align);
 		
+
 		boost::shared_ptr<pcl::PointCloud<pcl::PointXYZRGB>> transforming;
 		std::vector<Eigen::Vector3d> transformed;
 		std::vector<Eigen::Vector3d> vertices_3d2;
@@ -363,7 +428,24 @@ void pclviewer::add_cloud_buttonPressed()
 		GLOBAL_HELPERS::eigenVector_to_pclCloud(transformed, transforming);
 		GLOBAL_HELPERS::eigenVector_color_to_pclCloud(color_vertices, transforming);
 
-		*cloud += *transforming;
+		std::cout << "Before Filtering" << std::endl;
+		cloudFiltered.reset(new pcl::PointCloud<pcl::PointXYZRGB>(*(transforming)));
+		pcl::VoxelGrid< pcl::PointXYZRGB > sor;
+		sor.setInputCloud(cloudFiltered);
+		sor.setLeafSize(10.00f, 10.00f, 10.00f);
+		std::cout << "Just Before Filtering" << std::endl;
+		sor.filter(*cloudFiltered);
+		std::cout << "After Filtering" << endl;
+		*cloud += *cloudFiltered;
+		std::cout << "************ PointCloud before filtering: " << transforming->width * transforming->height
+			<< " data points" << std::endl;
+
+		std::cout << "************ PointCloud after filtering: " << cloudFiltered->width * cloudFiltered->height
+			<< " data points" << std::endl;
+
+
+
+		//*cloud += *transforming;
 
 		storeMarkersAligned(cur_ser);
 		cur_ser++;
@@ -371,13 +453,13 @@ void pclviewer::add_cloud_buttonPressed()
 
 
 	// for debugging purpose. Comment if debugging is not needed.
-	for (int i = 0; i < tags[cur_ser-1].size(); i++)
-	{
-		if (tags[cur_ser-1][i].cloud_index != -1)
-		{
-			VISH::mark_cloud(cloud, tags[cur_ser-1][i].cloud_index, cv::Vec3b(0, 0, 255), 3);
-		}
-	}
+	//for (int i = 0; i < tags[cur_ser-1].size(); i++)
+	//{
+	//	if (tags[cur_ser-1][i].cloud_index != -1)
+	//	{
+	//		VISH::mark_cloud(cloud, tags[cur_ser-1][i].cloud_index, cv::Vec3b(0, 0, 255), 3);
+	//	}
+	//}
 
 	viewer->updatePointCloud(cloud, "cloud");
 	ui->qvtkWidget->update();

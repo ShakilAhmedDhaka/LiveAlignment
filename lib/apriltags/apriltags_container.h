@@ -25,7 +25,7 @@
 
 class Apriltags
 {
-    public:
+	public:
 		getopt_t* getopt;
 		apriltag_family_t* tf;
 		apriltag_detector_t* td;
@@ -34,12 +34,13 @@ class Apriltags
 		Apriltags();
 		Apriltags(const char* family);
 		~Apriltags();
-    
+	
 		// drawBorder = draws border on the tags
 		// drawBlock = draws blocks on the corners of the tags
 		void vis_apriltags(cv::Mat& frame, std::vector<GLOBAL_HELPERS::Global_helpers::TagPoints>& aprl_tags,
 			int width_offset=0, int height_offset=0,
-			bool drawMiddleSquare = false, bool showTagID = true, bool drawborder = true, bool drawCornerBlocks = false);
+			bool drawMiddleSquare = false, bool showTagID = true, bool drawborder = true, bool drawCornerBlocks = false,
+			bool correctAngle  = false);
 		
 		// returns sorted tags from a color image based on the tag id
 		// and then the order of tags in their frame
@@ -58,7 +59,7 @@ class Apriltags
 		// from different tags as much as possible
 		void rearrange_tags(std::vector<GLOBAL_HELPERS::Global_helpers::TagPoints>& tags1, 
 			std::vector<GLOBAL_HELPERS::Global_helpers::TagPoints>& tags2, int& different_tags);
-    private:
+	private:
 		std::vector<GLOBAL_HELPERS::Global_helpers::TagPoints> tags;
 		const char* set_tag_param();
 		const char* set_tag_param(const char* family);
