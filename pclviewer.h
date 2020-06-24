@@ -12,6 +12,7 @@
 
 // Visualization Toolkit (VTK)
 #include <vtkRenderWindow.h>
+#include <vtkCleanPolyData.h>
 
 #include "global_helpers.h"
 #include "capture.h"
@@ -57,6 +58,9 @@ private:
 	// Goal: Store the aligned points in "points" an array for faster access of tags( order 1 ) later on
 	// Return: None
 	void storeMarkersAligned(int current_serial);
+	void unStoreMarkersAligned(int current_serial);
+
+	void cloudToPolygonMesh(pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud, pcl::PolygonMesh::Ptr& mesh);
 	
 protected:
 	
@@ -69,6 +73,7 @@ protected:
 	boost::shared_ptr<pcl::PointCloud<pcl::PointXYZRGB>> cloud;
 	boost::shared_ptr<pcl::PointCloud<pcl::PointXYZRGB>> cloudFiltered;
 	std::vector< boost::shared_ptr<pcl::PointCloud<pcl::PointXYZRGB>> > clouds;
+	std::vector< pcl::PolygonMesh::Ptr > meshes;
 
 	cv::Mat* captured_color;
 
@@ -82,7 +87,10 @@ protected:
 
 
 	// For each TAG: Find first index by Tag ID (Tag.tag) * 14
-	// First Index: 1 / 0. Denotes if the tag is already stored
+	// First Index: 0 / [1...n]. Denotes for which pose the tags were registered.
+	// for example: if during the 2nd pose the tags were discovered first, then 
+	// first index will be 2. If it was for 3rd pose first index will be 3. If
+	// this tag has not been discovered yet then first index is 0.
 	// Second index: How many corners were found
 	// The next twelve index contains 4 3D points for 4 corners
 	short points[NUMBER_OF_TAGS * TAGS_CORNERS * TAG_CORNER_BUFFER + 5];

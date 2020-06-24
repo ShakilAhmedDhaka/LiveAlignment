@@ -87,13 +87,22 @@ void pclviewer::closeEvent(QCloseEvent* event)
 	qtimer->stop();
 	cloud.reset();
 	cloud_aligned.reset();
-	for (int i = 0; i < clouds.size(); i++)
+	for (int i = clouds.size()-1; i >= 0; i--)
 	{
 		clouds[i].reset();
+		clouds.pop_back();
 	}
+
+	for (int i = 0; i < aligns.size(); i++)	aligns.pop_back();
+	for (int i = 0; i < tags.size(); i++)	tags.pop_back();
+
+
+	viewer_aligned->removeAllPointClouds();
 	viewer_aligned.reset();
+	viewer->removeAllPointClouds();
 	viewer.reset();
-	capture.~Capture();
+	std::cout << " viewers closed" << std::endl;
+	//capture.~Capture();
 }
 
 
@@ -279,6 +288,20 @@ std::map<int, std::vector<double> > pclviewer::getFeaturePoints(Capture& capture
 }
 
 
+void pclviewer::unStoreMarkersAligned(int current_frame)
+{
+	std::vector<GLOBAL_HELPERS::Global_helpers::TagPoints> tag = tags[current_frame];
+	
+	for (int i = 0; i < tag.size(); i++)
+	{
+		if (tag[i].cloud_index != -1)
+		{
+			int startIndex = tag[i].tag * TAG_BUFFER + tag[i].pos * TAG_CORNER_BUFFER;
+			if (points[startIndex] == current_frame + 1)	points[startIndex] = 0;
+		}
+	}
+}
+
 
 
 void pclviewer::storeMarkersAligned(int current_frame)
@@ -313,7 +336,7 @@ void pclviewer::storeMarkersAligned(int current_frame)
 						points[startIndex + j] = fPoints[i][j - 1];
 					}
 
-					points[startIndex] = 1;
+					points[startIndex] = current_frame+1;
 				}
 			}
 			catch (int e)
@@ -326,19 +349,111 @@ void pclviewer::storeMarkersAligned(int current_frame)
 
 
 
+
+void pclviewer::cloudToPolygonMesh(pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud, pcl::PolygonMesh::Ptr& mesh)
+{
+	pcl::PolygonMesh::Ptr old_mesh(new pcl::PolygonMesh);
+	pcl::OrganizedFastMesh<pcl::PointXYZRGB> fast_mesh;
+	fast_mesh.setInputCloud(cloud);
+	fast_mesh.reconstruct(*old_mesh);
+
+
+	mesh->polygons.clear();
+	mesh->cloud.data.clear();
+	mesh->cloud.height = 1;
+	mesh->cloud.is_dense = false;
+	mesh->cloud.data.push_back(1);
+
+
+	// Mapping new face and vertices
+	std::vector<Eigen::Vector3d> newVerticesList;
+	std::vector<Eigen::Vector3d> newVerticesListColor;
+	std::vector<unsigned int> indicesMap;
+	indicesMap.resize(cloud->width * cloud->height);
+
+	for (int i = 0; i < cloud->height; i++)
+	{
+		for (int j = 0; j < cloud->width; j++)
+		{
+			if (cloud->at(j, i).z < 100)
+			{
+				cloud->at(j, i).z = 0;
+				indicesMap[i * cloud->width + j] = -1;
+			}
+			else
+			{
+				indicesMap[i * cloud->width + j] = newVerticesList.size();
+				newVerticesList.push_back(Eigen::Vector3d(cloud->at(j, i).x, cloud->at(j, i).y, cloud->at(j, i).z));
+				newVerticesListColor.push_back(Eigen::Vector3d(cloud->at(j, i).r, cloud->at(j, i).g, cloud->at(j, i).b));
+			}
+		}
+	}
+
+
+	// transfering cloud data to new mesh
+	pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud_temp(new pcl::PointCloud<pcl::PointXYZRGB>());
+	cloud_temp->width = newVerticesList.size();
+	cloud_temp->height = 1;
+	cloud_temp->resize(newVerticesList.size());
+	cloud_temp->is_dense = true;
+
+	for (int i = 0; i < newVerticesList.size(); i++)
+	{
+		cloud_temp->points[i].x = newVerticesList[i][0];
+		cloud_temp->points[i].y = newVerticesList[i][1];
+		cloud_temp->points[i].z = newVerticesList[i][2];
+		cloud_temp->points[i].r = newVerticesListColor[i][0];
+		cloud_temp->points[i].g = newVerticesListColor[i][1];
+		cloud_temp->points[i].b = newVerticesListColor[i][2];
+	}
+
+	pcl::toPCLPointCloud2(*cloud_temp, mesh->cloud);
+
+
+	// creating new faces
+	mesh->polygons.resize(old_mesh->polygons.size());
+	std::vector<pcl::Vertices, std::allocator<pcl::Vertices>>::iterator face;
+	for (face = old_mesh->polygons.begin(); face != old_mesh->polygons.end(); face++)
+	{
+		unsigned int v1 = face->vertices[0] + 1;
+		unsigned int v2 = face->vertices[1] + 1;
+		unsigned int v3 = face->vertices[2] + 1;
+		unsigned int v4 = face->vertices[3] + 1;
+
+
+		pcl::PointXYZRGB p1 = cloud->points.at(v1);
+		pcl::PointXYZRGB p2 = cloud->points.at(v2);
+		pcl::PointXYZRGB p3 = cloud->points.at(v3);
+		pcl::PointXYZRGB p4 = cloud->points.at(v4);
+
+		if (p1.z == 0 || p2.z == 0 || p3.z == 0 || p4.z == 0 || std::max(std::max(std::abs(p1.z - p2.z), std::abs(p1.z - p3.z)), std::abs(p2.z - p3.z)) > 50)
+		{
+
+		}
+		else
+		{
+			if (indicesMap[v1] != -1 && indicesMap[v2] != -1 && indicesMap[v3] != -1 && indicesMap[v4] != -1)
+			{
+				if (v1 == v2 && v2 == v3)	continue;
+
+				pcl::Vertices newFace;
+				newFace.vertices = { indicesMap[v1], indicesMap[v2], indicesMap[v3], indicesMap[v4] };
+				mesh->polygons.push_back(newFace);
+			}
+		}
+	}
+}
+
+
 void pclviewer::add_cloud_buttonPressed()
 {
 	if (cur_ser == 0)
 	{
-		cloud.reset(new pcl::PointCloud<pcl::PointXYZRGB>(*(cloud_aligned)));
-		clouds.resize(1);
-		clouds[0].reset(new pcl::PointCloud<pcl::PointXYZRGB>(*(cloud_aligned)));
-		
-		pcl::VoxelGrid< pcl::PointXYZRGB > sor;
-		sor.setInputCloud( cloud );
-		sor.setLeafSize(10.00f, 10.00f, 10.00f);
-		sor.filter(*cloud);
-		viewer->addPointCloud(cloud, "cloud");
+		meshes.resize(1);
+		meshes[0] = pcl::PolygonMesh::Ptr(new pcl::PolygonMesh);
+		cloudToPolygonMesh(cloud_aligned, meshes[0]);
+
+		viewer->addPolygonMesh(*meshes[0], "polygon0");
 
 		tags.resize(1);
 		apriltags.get_tags(capture.color_mat, tags[0], 1, 1,0);
@@ -352,8 +467,9 @@ void pclviewer::add_cloud_buttonPressed()
 	{
 		std::cout << "current serial: " << cur_ser << std::endl;
 
-		clouds.resize(cur_ser + 1);
-		clouds[cur_ser].reset(new pcl::PointCloud<pcl::PointXYZRGB>(*(cloud_aligned)));
+		meshes.resize(cur_ser + 1);
+		meshes[cur_ser] = pcl::PolygonMesh::Ptr(new pcl::PolygonMesh);
+		//cloudToPolygonMesh(cloud_aligned, meshes[cur_ser]);
 		aligns.push_back(transform_align);
 		
 
@@ -363,7 +479,7 @@ void pclviewer::add_cloud_buttonPressed()
 		std::vector<Eigen::Vector3d> color_vertices;
 		GLOBAL_HELPERS::pclToEigenVector(cloud_aligned, vertices_3d2);
 		GLOBAL_HELPERS::pclToEigenVector_color(cloud_aligned, color_vertices);
-		transforming = boost::shared_ptr<pcl::PointCloud<pcl::PointXYZRGB>>(cloud_aligned);
+		transforming.reset(new pcl::PointCloud<pcl::PointXYZRGB> (*cloud_aligned));// boost::shared_ptr<pcl::PointCloud<pcl::PointXYZRGB>>(cloud_aligned);
 
 
 		tags.resize(cur_ser + 1);
@@ -379,7 +495,7 @@ void pclviewer::add_cloud_buttonPressed()
 				int startIndex = tags[cur_ser][i].tag * TAG_BUFFER + tags[cur_ser][i].pos * TAG_CORNER_BUFFER;
 				try
 				{
-					if (points[startIndex] == 1)
+					if (points[startIndex] != 0)
 					{
 						Eigen::Vector3d pts1 = Eigen::Vector3d(points[startIndex + 1], points[startIndex + 2], points[startIndex + 3]);
 						aligns[cur_ser].m_points2.push_back(pts1);
@@ -428,24 +544,12 @@ void pclviewer::add_cloud_buttonPressed()
 		GLOBAL_HELPERS::eigenVector_to_pclCloud(transformed, transforming);
 		GLOBAL_HELPERS::eigenVector_color_to_pclCloud(color_vertices, transforming);
 
-		std::cout << "Before Filtering" << std::endl;
-		cloudFiltered.reset(new pcl::PointCloud<pcl::PointXYZRGB>(*(transforming)));
-		pcl::VoxelGrid< pcl::PointXYZRGB > sor;
-		sor.setInputCloud(cloudFiltered);
-		sor.setLeafSize(10.00f, 10.00f, 10.00f);
-		std::cout << "Just Before Filtering" << std::endl;
-		sor.filter(*cloudFiltered);
-		std::cout << "After Filtering" << endl;
-		*cloud += *cloudFiltered;
-		std::cout << "************ PointCloud before filtering: " << transforming->width * transforming->height
-			<< " data points" << std::endl;
-
-		std::cout << "************ PointCloud after filtering: " << cloudFiltered->width * cloudFiltered->height
-			<< " data points" << std::endl;
-
-
-
-		//*cloud += *transforming;
+		
+		cloudToPolygonMesh(transforming, meshes[cur_ser]);
+		std::string prefix = "polygon";
+		std::vector<char> chars(prefix.begin(), prefix.end() + prefix.length() + 1);
+		const std::string meshid = strcat(&chars[0], "" + cur_ser);
+		viewer->addPolygonMesh(*meshes[cur_ser], meshid);
 
 		storeMarkersAligned(cur_ser);
 		cur_ser++;
@@ -460,8 +564,7 @@ void pclviewer::add_cloud_buttonPressed()
 	//		VISH::mark_cloud(cloud, tags[cur_ser-1][i].cloud_index, cv::Vec3b(0, 0, 255), 3);
 	//	}
 	//}
-
-	viewer->updatePointCloud(cloud, "cloud");
+	
 	ui->qvtkWidget->update();
 
 	ui->comboBox_clouds_serial->addItem( QString::number(aligns.size()-1) );
@@ -474,17 +577,16 @@ void pclviewer::reset_buttonPressed()
 	//if (clouds.size() == 0) return;
 
 	std::cout << "reset button pressed" << std::endl;
-	cloud = boost::shared_ptr<pcl::PointCloud<pcl::PointXYZRGB>>(new pcl::PointCloud<pcl::PointXYZRGB>);
-	//GLOBAL_HELPERS::copyCloud(cloud_aligned, cloud);
+
 	clouds.clear();
 	aligns.clear();
 	aligns.push_back(transform_align);
 	tags.clear();
+	memset(points, 0, sizeof(points) / sizeof(points[0]));
 	cur_ser = 0;
 	
-	viewer->updatePointCloud(cloud, "cloud");
+	viewer->removeAllPointClouds();
 	ui->qvtkWidget->update();
-
 	ui->comboBox_clouds_serial->clear();
 	ui->comboBox_clouds_serial->addItem("NONE");
 }
@@ -495,26 +597,21 @@ void pclviewer::remove_cloud_buttonPressed()
 	if (clouds.size() == 0) return;
 
 	int remove_ind = ui->comboBox_clouds_serial->currentIndex()-1;
-	clouds.erase(clouds.begin() + remove_ind);
-	aligns.erase(aligns.begin() + remove_ind, aligns.end());
-	if (remove_ind == 0)	aligns.push_back(transform_align);
-	//aligns.clear();
-	//aligns.push_back(transform_align);
-	tags.erase(tags.begin() + remove_ind);
-	std::cout << "aligns size: " << aligns.size() << std::endl;
-	std::cout << "tags size: " << tags.size() << std::endl;
-	std::cout << "clouds size: " << clouds.size() << std::endl;
-
-
-	if (clouds.size() == 0)
+	std::vector<int> remove_indices;
+	remove_indices.push_back(remove_ind);
+	if (remove_ind == 0)
 	{
 		reset_buttonPressed();
 		return;
 	}
+	
+	// deleting features points correspondece for this pose
+	unStoreMarkersAligned(remove_ind);
 
 	cloud.reset(new pcl::PointCloud<pcl::PointXYZRGB>(*(clouds[0])));
 	boost::shared_ptr<pcl::PointCloud<pcl::PointXYZRGB>> transforming;
 
+	// realigning the poses from beging to just before the pose to be removed
 	for (int i = 1; i < remove_ind; i++)
 	{
 		std::cout << "realigning clouds" << std::endl;
@@ -525,12 +622,10 @@ void pclviewer::remove_cloud_buttonPressed()
 		GLOBAL_HELPERS::pclToEigenVector_color(clouds[i], color_vertices);
 		transforming.reset(new pcl::PointCloud<pcl::PointXYZRGB>(*(clouds[i])));
 
-		for (int j = i; j > 0; j--)
-		{
-			apply_scale(aligns[j].m_s, vertices_3d2);
-			aligns[j].apply(vertices_3d2, transformed);
-			vertices_3d2 = transformed;
-		}
+		apply_scale(aligns[i].m_s, vertices_3d2);
+		aligns[i].apply(vertices_3d2, transformed);
+		vertices_3d2 = transformed;
+		
 
 		GLOBAL_HELPERS::eigenVector_to_pclCloud(transformed, transforming);
 		GLOBAL_HELPERS::eigenVector_color_to_pclCloud(color_vertices, transforming);
@@ -540,9 +635,8 @@ void pclviewer::remove_cloud_buttonPressed()
 	}
 
 
-	int run_from = std::max(remove_ind, 1);
-
-	for (int i = run_from; i < clouds.size(); i++)
+	// escaping the pose to be removed. starting after that.
+	for (int i = remove_ind + 1; i < clouds.size(); i++)
 	{
 		std::cout << "realigning clouds" << std::endl;
 		std::vector<Eigen::Vector3d> transformed;
@@ -552,13 +646,44 @@ void pclviewer::remove_cloud_buttonPressed()
 		GLOBAL_HELPERS::pclToEigenVector_color(clouds[i], color_vertices);
 		transforming.reset(new pcl::PointCloud<pcl::PointXYZRGB>(*(clouds[i])));
 
-		apriltags.common_tags(tags[i - 1], tags[i]);
-		apriltags.rearrange_tags(tags[i - 1], tags[i], different_tags);
-		std::cout << "number of common tags: " << tags[i].size() << std::endl;
+		// clearing previous feature points for alignment
+		aligns[i].m_points1.clear();
+		aligns[i].m_points2.clear();
+		int different_tags = 0;	// different_tags = number of features that matches with some other previously found features
+		for (int j = 0; j < tags[i].size(); j++)
+		{
+			if (tags[i][j].cloud_index != -1)
+			{
+				int startIndex = tags[i][j].tag * TAG_BUFFER + tags[i][j].pos * TAG_CORNER_BUFFER;
+				try
+				{
+					if (points[startIndex] != 0)
+					{
+						Eigen::Vector3d pts1 = Eigen::Vector3d(points[startIndex + 1], points[startIndex + 2], points[startIndex + 3]);
+						aligns[i].m_points2.push_back(pts1);
 
-		aligns.push_back(transform_align);
-		loadfeaturepoints(tags[i - 1], aligns[i].m_points2);
-		loadfeaturepoints(tags[i], aligns[i].m_points1);
+						Eigen::Vector3d pts2 = tags[cur_ser][i].point3D;
+						aligns[i].m_points1.push_back(pts2);
+
+						different_tags++;
+					}
+				}
+				catch (int e)
+				{
+					throw("Tag ID is out of bound. Try increasing the size of the array 'points'");
+				}
+
+			}
+		}
+
+		// if different_tags is 0 then this pose has no corresponding features with previous poses
+		// and to be removed
+		if (different_tags == 0)
+		{
+			unStoreMarkersAligned(i); // this is necessary to avoid misguiding the following poses
+			remove_indices.push_back(i);
+			continue;
+		}
 
 		aligns[i].compute_scale();
 
@@ -568,17 +693,9 @@ void pclviewer::remove_cloud_buttonPressed()
 		// computing the transformation matrix
 		std::cout << "Applying transformation" << std::endl;
 		aligns[i].compute_trans();
-		//aligns[i].save("../outputs/mat.txt");
-		//aligns[i+1].prune(different_tags, different_tags);
-		//aligns[cur_ser + 1].save(tm_name.c_str());
-		apply_scale(1.0f / aligns[i].m_s, vertices_3d2);
-
-		for (int j = i; j > 0; j--)
-		{
-			apply_scale(aligns[j].m_s, vertices_3d2);
-			aligns[j].apply(vertices_3d2, transformed);
-			vertices_3d2 = transformed;
-		}
+		
+		aligns[i].apply(vertices_3d2, transformed);
+		vertices_3d2 = transformed;
 
 		GLOBAL_HELPERS::eigenVector_to_pclCloud(transformed, transforming);
 		GLOBAL_HELPERS::eigenVector_color_to_pclCloud(color_vertices, transforming);
@@ -587,8 +704,23 @@ void pclviewer::remove_cloud_buttonPressed()
 	}
 
 
+	// removing all corresponding data of the poses that could not align
+	for (int i = 0; i < remove_indices.size(); i++)
+	{
+		clouds.erase(clouds.begin() + remove_indices[i]);
+		aligns.erase(aligns.begin() + remove_indices[i]);
+		tags.erase(tags.begin() + remove_indices[i]);
+	}
+
+	std::cout << "aligns size: " << aligns.size() << std::endl;
+	std::cout << "tags size: " << tags.size() << std::endl;
+	std::cout << "clouds size: " << clouds.size() << std::endl;
+
+
 	cur_ser = clouds.size();
-	viewer->updatePointCloud(cloud, "cloud");
+	viewer->removeAllPointClouds();
+	viewer->addPointCloud(cloud, "cloud");
+	//viewer->updatePointCloud(cloud, "cloud");
 	ui->qvtkWidget->update();
 
 	ui->comboBox_clouds_serial->clear();

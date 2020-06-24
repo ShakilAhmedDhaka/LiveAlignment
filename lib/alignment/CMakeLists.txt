@@ -10,7 +10,7 @@ AUX_SOURCE_DIRECTORY(
 
 #message( ${CAPTURE_SRC} )
 add_library(
-    alignment_lib 
+    alignment_lib
     ${CAPTURE_SRC} 
     ${CAPTURE_HEADER} 
 )

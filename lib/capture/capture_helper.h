@@ -10,7 +10,7 @@
 
 #ifndef NDEBUG
 #   define M_Assert(Expr, Msg) \
-    __M_Assert(#Expr, Expr, __FILE__, __LINE__, Msg)
+	__M_Assert(#Expr, Expr, __FILE__, __LINE__, Msg)
 #else
 #   define M_Assert(Expr, Msg) ;
 #endif

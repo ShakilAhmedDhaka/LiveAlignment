@@ -368,7 +368,8 @@ bool Capture::project_colorcam_to_depthcam(cv::Point colorcam_pixel, int& depthc
 	// sanity check: if geven color pixel values are out of bound
 	std::cout << "colorcam_pixel size: " << color_image_width_pixels << " " << color_image_height_pixels << std::endl;
 	std::cout << "colorcam_pixel x: " << colorcam_pixel.x << " colorcam_pixel y: " << colorcam_pixel.y << std::endl;
-	if (colorcam_pixel.x >= color_image_width_pixels || colorcam_pixel.y >= color_image_height_pixels)
+	if (colorcam_pixel.x >= color_image_width_pixels || colorcam_pixel.y >= color_image_height_pixels ||
+		colorcam_pixel.x < 0 || colorcam_pixel.y < 0)
 	{
 		std::cout << "colorcam_pixel out of bound" << std::endl;
 		return false;

@@ -47,7 +47,7 @@ set (VISUALIZER_LIBS ${VISUALIZER_LIBS} visualizer_lib)
 
 include_directories("${PROJECT_SOURCE_DIR}/lib/capture")
 add_subdirectory(lib/capture)
-set (CAPTURE_LIBS ${ALIGNMENT_LIBS} capture_lib)
+set (CAPTURE_LIBS ${CAPTURE_LIBS} capture_lib)
 
 include_directories("${PROJECT_SOURCE_DIR}/lib/apriltags")
 add_subdirectory(lib/apriltags)
