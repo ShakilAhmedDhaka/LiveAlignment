@@ -61,7 +61,6 @@ private:
 	void unStoreMarkersAligned(int current_serial);
 
 	void cloudToPolygonMesh(pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud, pcl::PolygonMesh::Ptr& mesh);
-	void addMeshToViewer(pcl::PolygonMesh::Ptr polymesh, int id);
 	
 protected:
 	
