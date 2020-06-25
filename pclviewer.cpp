@@ -17,7 +17,7 @@ pclviewer::pclviewer(int argc, char** argv, QWidget *parent) :
 	ui->setupUi(this);
 
 	this->setWindowTitle ("PCL viewer");
-
+	dbug.open("log.txt");
 	memset(points, 0, sizeof(points));
 
 	transform_align.m_s = 1;
@@ -74,6 +74,11 @@ pclviewer::pclviewer(int argc, char** argv, QWidget *parent) :
 	ui->qvtkWidget_2->update();
 	ui->qvtkWidget->update ();
 	std::cout << "debug6" << std::endl;
+	if (!dbug.is_open())
+	{
+		std::cout << "could not open log file" << std::endl;
+		QCoreApplication::quit();
+	}
 }
 
 pclviewer::~pclviewer()
@@ -84,24 +89,25 @@ pclviewer::~pclviewer()
 
 void pclviewer::closeEvent(QCloseEvent* event)
 {
+	reset_buttonPressed();
 	qtimer->stop();
 	cloud.reset();
 	cloud_aligned.reset();
-	for (int i = clouds.size()-1; i >= 0; i--)
+	for (int i = meshes.size()-1; i >= 0; i--)
 	{
-		clouds[i].reset();
-		clouds.pop_back();
+		meshes[i].reset();
 	}
-
-	for (int i = 0; i < aligns.size(); i++)	aligns.pop_back();
-	for (int i = 0; i < tags.size(); i++)	tags.pop_back();
+	std::vector<pcl::PolygonMesh::Ptr>().swap(meshes);
+	std::vector<TBasic::RSAlign>().swap(aligns);
+	std::vector< std::vector<GLOBAL_HELPERS::Global_helpers::TagPoints> >().swap(tags);
 
 
 	viewer_aligned->removeAllPointClouds();
 	viewer_aligned.reset();
 	viewer->removeAllPointClouds();
 	viewer.reset();
-	std::cout << " viewers closed" << std::endl;
+	dbug << "viewers closed" << std::endl;
+	dbug.close();
 	//capture.~Capture();
 }
 
@@ -371,14 +377,24 @@ void pclviewer::cloudToPolygonMesh(pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud,
 	std::vector<unsigned int> indicesMap;
 	indicesMap.resize(cloud->width * cloud->height);
 
+	int discarded_points = 0, average_point_z = 0, average_point_z_discarded = 0, non_zero_points = 0, points_depth_zero = 0;
 	for (int i = 0; i < cloud->height; i++)
 	{
 		for (int j = 0; j < cloud->width; j++)
 		{
-			if (cloud->at(j, i).z < 100)
+			if (cloud->at(j, i).z < 10.0f)
 			{
-				cloud->at(j, i).z = 0;
+				cloud->at(j, i).z = 0.0f;
 				indicesMap[i * cloud->width + j] = -1;
+				if (cloud->at(j, i).z > 0.0f)
+				{
+					discarded_points++;
+					average_point_z_discarded += cloud->at(j, i).z;
+				}
+				else
+				{
+					points_depth_zero++;
+				}
 			}
 			else
 			{
@@ -386,9 +402,22 @@ void pclviewer::cloudToPolygonMesh(pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud,
 				newVerticesList.push_back(Eigen::Vector3d(cloud->at(j, i).x, cloud->at(j, i).y, cloud->at(j, i).z));
 				newVerticesListColor.push_back(Eigen::Vector3d(cloud->at(j, i).r, cloud->at(j, i).g, cloud->at(j, i).b));
 			}
+
+			if (cloud->at(j, i).z > 0.0f)
+			{
+				average_point_z += cloud->at(j, i).z;
+				non_zero_points++;
+			}
+			
 		}
 	}
 
+	dbug << "total number of candidate points: " << cloud->width * cloud->height << std::endl;
+	if (non_zero_points > 0)	dbug << "average z value of all points: " << average_point_z / non_zero_points << std::endl;
+	else dbug << "All points depths are zero!!!!!!" << std::endl;
+	dbug << "discarded points: " << discarded_points + points_depth_zero << std::endl;
+	if (discarded_points > 0)	dbug << "average z value of discarded points: " << average_point_z_discarded / discarded_points << std::endl;
+	else dbug << "no non zero depth value was discarded" << std::endl;
 
 	// transfering cloud data to new mesh
 	pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud_temp(new pcl::PointCloud<pcl::PointXYZRGB>());
@@ -399,9 +428,14 @@ void pclviewer::cloudToPolygonMesh(pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud,
 
 	for (int i = 0; i < newVerticesList.size(); i++)
 	{
-		cloud_temp->points[i].x = newVerticesList[i][0];
-		cloud_temp->points[i].y = newVerticesList[i][1];
-		cloud_temp->points[i].z = newVerticesList[i][2];
+		Eigen::Vector3d pt(newVerticesList[i][0], newVerticesList[i][1], newVerticesList[i][2]);
+		std::vector<Eigen::Vector3d> src; src.push_back(pt);
+		std::vector<Eigen::Vector3d> dst;
+		
+		aligns[cur_ser].apply(src, dst);
+		cloud_temp->points[i].x = dst[0][0];
+		cloud_temp->points[i].y = dst[0][1];
+		cloud_temp->points[i].z = dst[0][2];
 		cloud_temp->points[i].r = newVerticesListColor[i][0];
 		cloud_temp->points[i].g = newVerticesListColor[i][1];
 		cloud_temp->points[i].b = newVerticesListColor[i][2];
@@ -411,14 +445,15 @@ void pclviewer::cloudToPolygonMesh(pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud,
 
 
 	// creating new faces
+	int discarded_faces = 0, common_vertices = 0, average_depth_face = 0, discard_for_difference = 0;
 	mesh->polygons.resize(old_mesh->polygons.size());
 	std::vector<pcl::Vertices, std::allocator<pcl::Vertices>>::iterator face;
 	for (face = old_mesh->polygons.begin(); face != old_mesh->polygons.end(); face++)
 	{
-		unsigned int v1 = face->vertices[0] + 1;
-		unsigned int v2 = face->vertices[1] + 1;
-		unsigned int v3 = face->vertices[2] + 1;
-		unsigned int v4 = face->vertices[3] + 1;
+		unsigned int v1 = face->vertices[0];
+		unsigned int v2 = face->vertices[1];
+		unsigned int v3 = face->vertices[2];
+		unsigned int v4 = face->vertices[3];
 
 
 		pcl::PointXYZRGB p1 = cloud->points.at(v1);
@@ -426,22 +461,47 @@ void pclviewer::cloudToPolygonMesh(pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud,
 		pcl::PointXYZRGB p3 = cloud->points.at(v3);
 		pcl::PointXYZRGB p4 = cloud->points.at(v4);
 
-		if (p1.z == 0 || p2.z == 0 || p3.z == 0 || p4.z == 0 || std::max(std::max(std::abs(p1.z - p2.z), std::abs(p1.z - p3.z)), std::abs(p2.z - p3.z)) > 50)
-		{
 
+
+		float max_z = std::max(std::max(std::max(p1.z, p2.z), p3.z), p4.z);
+		float min_z = std::min(std::min(std::min(p1.z, p2.z), p3.z), p4.z);
+		average_depth_face += (max_z - min_z);
+
+		if (p1.z == 0 || p2.z == 0 || p3.z == 0 || p4.z == 0)
+		{
+			discarded_faces++;
+		}
+		else if ( (max_z - min_z) > 50 )
+		{
+			discarded_faces++;
+			discard_for_difference++;
 		}
 		else
 		{
 			if (indicesMap[v1] != -1 && indicesMap[v2] != -1 && indicesMap[v3] != -1 && indicesMap[v4] != -1)
 			{
-				if (v1 == v2 && v2 == v3)	continue;
-
+				if (v1 == v2 || v2 == v3 || v3 == v4 || v4 == v1)
+				{
+					common_vertices++;
+				}
+				else
+				{
+					
+				}
 				pcl::Vertices newFace;
 				newFace.vertices = { indicesMap[v1], indicesMap[v2], indicesMap[v3], indicesMap[v4] };
 				mesh->polygons.push_back(newFace);
 			}
 		}
 	}
+
+	dbug << "total number of candidate faces: " << old_mesh->polygons.size() << std::endl;
+	dbug << "discarded faces: " << discarded_faces << std::endl;
+	dbug << "dicarded for differences in z values: " << discard_for_difference << std::endl;
+	dbug << "incident of common vertices in the same candidate face: " << common_vertices << std::endl;
+	if (old_mesh->polygons.size() > 0)	dbug << "average depth difference between candidate face vertices: " << average_depth_face / old_mesh->polygons.size() << std::endl;
+	else dbug << "number of candidate faces are zero!!!" << std::endl;
+	dbug << "number of faces accepted: " << mesh->polygons.size() << std::endl;
 }
 
 
@@ -449,11 +509,18 @@ void pclviewer::add_cloud_buttonPressed()
 {
 	if (cur_ser == 0)
 	{
+		dbug << "adding pose: 0" << std::endl;
 		meshes.resize(1);
 		meshes[0] = pcl::PolygonMesh::Ptr(new pcl::PolygonMesh);
 		cloudToPolygonMesh(cloud_aligned, meshes[0]);
 
-		viewer->addPolygonMesh(*meshes[0], "polygon0");
+		/*std::string prefix = "polygon";
+		std::vector<char> chars(prefix.begin(), prefix.end() + prefix.length() + 1);
+		const std::string meshid = strcat(&chars[0], "" + cur_ser);*/
+		if (!viewer->addPolygonMesh(*meshes[cur_ser], meshids[cur_ser]))
+		{
+			dbug << "duplicate id for mesh: " << cur_ser << ". chose another id" << std::endl;
+		}
 
 		tags.resize(1);
 		apriltags.get_tags(capture.color_mat, tags[0], 1, 1,0);
@@ -465,8 +532,7 @@ void pclviewer::add_cloud_buttonPressed()
 	}
 	else
 	{
-		std::cout << "current serial: " << cur_ser << std::endl;
-
+		dbug << "adding pose: " << cur_ser << std::endl;
 		meshes.resize(cur_ser + 1);
 		meshes[cur_ser] = pcl::PolygonMesh::Ptr(new pcl::PolygonMesh);
 		//cloudToPolygonMesh(cloud_aligned, meshes[cur_ser]);
@@ -525,7 +591,7 @@ void pclviewer::add_cloud_buttonPressed()
 		aligns[cur_ser].compute_scale();
 
 		apply_scale(aligns[cur_ser].m_s, aligns[cur_ser].m_points1);
-		apply_scale(aligns[cur_ser].m_s, vertices_3d2);
+		//apply_scale(aligns[cur_ser].m_s, vertices_3d2);
 		std::cout << "scale factor: " << aligns[cur_ser].m_s << std::endl;
 		// computing the transformation matrix
 		std::cout << "Applying transformation" << std::endl;
@@ -533,23 +599,27 @@ void pclviewer::add_cloud_buttonPressed()
 		//aligns[cur_ser].save("../outputs/mat.txt");
 		//aligns[i+1].prune(different_tags, different_tags);
 		//aligns[cur_ser + 1].save(tm_name.c_str());
-		apply_scale(1.0f / aligns[cur_ser].m_s, vertices_3d2);
+		
+		/*apply_scale(1.0f / aligns[cur_ser].m_s, vertices_3d2);
 
 		
 		apply_scale(aligns[cur_ser].m_s, vertices_3d2);
-		aligns[cur_ser].apply(vertices_3d2, transformed);
+		aligns[cur_ser].apply(vertices_3d2, transformed);*/
 		//vertices_3d2 = transformed;
 		
 
-		GLOBAL_HELPERS::eigenVector_to_pclCloud(transformed, transforming);
-		GLOBAL_HELPERS::eigenVector_color_to_pclCloud(color_vertices, transforming);
+		//GLOBAL_HELPERS::eigenVector_to_pclCloud(transformed, transforming);
+		//GLOBAL_HELPERS::eigenVector_color_to_pclCloud(color_vertices, transforming);
 
 		
 		cloudToPolygonMesh(transforming, meshes[cur_ser]);
-		std::string prefix = "polygon";
-		std::vector<char> chars(prefix.begin(), prefix.end() + prefix.length() + 1);
-		const std::string meshid = strcat(&chars[0], "" + cur_ser);
-		viewer->addPolygonMesh(*meshes[cur_ser], meshid);
+
+		//addMeshToViewer(meshes[cur_ser], cur_ser);
+		if (!viewer->addPolygonMesh(*meshes[cur_ser], meshids[cur_ser]))
+		{
+			dbug << "duplicate id for mesh: " << cur_ser << ". chose another id" << std::endl;
+		}
+
 
 		storeMarkersAligned(cur_ser);
 		cur_ser++;
@@ -574,29 +644,51 @@ void pclviewer::add_cloud_buttonPressed()
 
 void pclviewer::reset_buttonPressed()
 {
-	//if (clouds.size() == 0) return;
+	dbug << "reset button pressed" << std::endl;
 
-	std::cout << "reset button pressed" << std::endl;
+	// removing meshes from viewer
+	for (int i = 0; i < cur_ser; i++)
+	{
+		std::string prefix = "polygon";
+		std::vector<char> chars(prefix.begin(), prefix.end() + prefix.length() + 1);
+		const std::string meshid = strcat(&chars[0], "" + i);
+		std::cout << "removing mesh id: " << meshid << " from viewer" << std::endl;
+		if (!viewer->removePolygonMesh(meshids[i]))
+		{
+			dbug << "removal of mesh: " << i << " from visualizer was unsuccessfull" << std::endl;
+		}
+	}
 
-	clouds.clear();
-	aligns.clear();
-	aligns.push_back(transform_align);
-	tags.clear();
-	memset(points, 0, sizeof(points) / sizeof(points[0]));
-	cur_ser = 0;
+	// resetting mesh pointers
+	for (int i = meshes.size() - 1; i >= 0; i--)
+	{
+		meshes[i].reset();
+	}
+
+	// removing elements and freeing up the memory
+	std::vector<pcl::PolygonMesh::Ptr>().swap(meshes);
+	std::vector<TBasic::RSAlign>().swap(aligns);
+	std::vector< std::vector<GLOBAL_HELPERS::Global_helpers::TagPoints> >().swap(tags);
 	
-	viewer->removeAllPointClouds();
+	// reinitialize some values
+	memset(points, 0, sizeof(points) / sizeof(points[0]));
+	aligns.push_back(transform_align);
+	cur_ser = 0;
 	ui->qvtkWidget->update();
 	ui->comboBox_clouds_serial->clear();
 	ui->comboBox_clouds_serial->addItem("NONE");
+
+	dbug << "resetting was done succesfully" << std::endl;
 }
 
 
 void pclviewer::remove_cloud_buttonPressed()
 {
-	if (clouds.size() == 0) return;
-
 	int remove_ind = ui->comboBox_clouds_serial->currentIndex()-1;
+	
+	dbug << "removing pose: " << remove_ind << std::endl;
+	
+	if (meshes.size() == 0) return;
 	std::vector<int> remove_indices;
 	remove_indices.push_back(remove_ind);
 	if (remove_ind == 0)
@@ -608,128 +700,120 @@ void pclviewer::remove_cloud_buttonPressed()
 	// deleting features points correspondece for this pose
 	unStoreMarkersAligned(remove_ind);
 
-	cloud.reset(new pcl::PointCloud<pcl::PointXYZRGB>(*(clouds[0])));
-	boost::shared_ptr<pcl::PointCloud<pcl::PointXYZRGB>> transforming;
-
-	// realigning the poses from beging to just before the pose to be removed
-	for (int i = 1; i < remove_ind; i++)
+	// removing all polygon meshes from viewer
+	// from the pose to be removed
+	for (int i = remove_ind; i < cur_ser; i++)
 	{
-		std::cout << "realigning clouds" << std::endl;
-		std::vector<Eigen::Vector3d> transformed;
-		std::vector<Eigen::Vector3d> vertices_3d2;
-		std::vector<Eigen::Vector3d> color_vertices;
-		GLOBAL_HELPERS::pclToEigenVector(clouds[i], vertices_3d2);
-		GLOBAL_HELPERS::pclToEigenVector_color(clouds[i], color_vertices);
-		transforming.reset(new pcl::PointCloud<pcl::PointXYZRGB>(*(clouds[i])));
-
-		apply_scale(aligns[i].m_s, vertices_3d2);
-		aligns[i].apply(vertices_3d2, transformed);
-		vertices_3d2 = transformed;
-		
-
-		GLOBAL_HELPERS::eigenVector_to_pclCloud(transformed, transforming);
-		GLOBAL_HELPERS::eigenVector_color_to_pclCloud(color_vertices, transforming);
-
-		*cloud += *transforming;
-
+		std::string prefix = "polygon";
+		std::vector<char> chars(prefix.begin(), prefix.end() + prefix.length() + 1);
+		const std::string meshid = strcat(&chars[0], "" + i);
+		if (!viewer->removePolygonMesh(meshids[i]))
+		{
+			dbug << "removal of mesh: " << i << " from visualizer was unsuccessfull" << std::endl;
+		}
 	}
 
-
+	
 	// escaping the pose to be removed. starting after that.
-	for (int i = remove_ind + 1; i < clouds.size(); i++)
-	{
-		std::cout << "realigning clouds" << std::endl;
-		std::vector<Eigen::Vector3d> transformed;
-		std::vector<Eigen::Vector3d> vertices_3d2;
-		std::vector<Eigen::Vector3d> color_vertices;
-		GLOBAL_HELPERS::pclToEigenVector(clouds[i], vertices_3d2);
-		GLOBAL_HELPERS::pclToEigenVector_color(clouds[i], color_vertices);
-		transforming.reset(new pcl::PointCloud<pcl::PointXYZRGB>(*(clouds[i])));
+	boost::shared_ptr<pcl::PointCloud<pcl::PointXYZRGB>> transforming;
+	int viewerId = remove_ind;
+	//for (int i = remove_ind + 1; i < cur_ser; i++)
+	//{
+	//	std::cout << "realigning pose: " << i << std::endl;
+	//	std::vector<Eigen::Vector3d> transformed;
+	//	std::vector<Eigen::Vector3d> vertices_3d2;
+	//	std::vector<Eigen::Vector3d> color_vertices;
+	//	GLOBAL_HELPERS::pclToEigenVector(clouds[i], vertices_3d2);
+	//	GLOBAL_HELPERS::pclToEigenVector_color(clouds[i], color_vertices);
+	//	transforming.reset(new pcl::PointCloud<pcl::PointXYZRGB>(*(clouds[i])));
 
-		// clearing previous feature points for alignment
-		aligns[i].m_points1.clear();
-		aligns[i].m_points2.clear();
-		int different_tags = 0;	// different_tags = number of features that matches with some other previously found features
-		for (int j = 0; j < tags[i].size(); j++)
-		{
-			if (tags[i][j].cloud_index != -1)
-			{
-				int startIndex = tags[i][j].tag * TAG_BUFFER + tags[i][j].pos * TAG_CORNER_BUFFER;
-				try
-				{
-					if (points[startIndex] != 0)
-					{
-						Eigen::Vector3d pts1 = Eigen::Vector3d(points[startIndex + 1], points[startIndex + 2], points[startIndex + 3]);
-						aligns[i].m_points2.push_back(pts1);
+	//	// clearing previous feature points for alignment
+	//	aligns[i].m_points1.clear();
+	//	aligns[i].m_points2.clear();
+	//	int different_tags = 0;	// different_tags = number of features that matches with some other previously found features
+	//	for (int j = 0; j < tags[i].size(); j++)
+	//	{
+	//		if (tags[i][j].cloud_index != -1)
+	//		{
+	//			int startIndex = tags[i][j].tag * TAG_BUFFER + tags[i][j].pos * TAG_CORNER_BUFFER;
+	//			try
+	//			{
+	//				if (points[startIndex] != 0)
+	//				{
+	//					Eigen::Vector3d pts1 = Eigen::Vector3d(points[startIndex + 1], points[startIndex + 2], points[startIndex + 3]);
+	//					aligns[i].m_points2.push_back(pts1);
 
-						Eigen::Vector3d pts2 = tags[cur_ser][i].point3D;
-						aligns[i].m_points1.push_back(pts2);
+	//					Eigen::Vector3d pts2 = tags[i][j].point3D;
+	//					aligns[i].m_points1.push_back(pts2);
 
-						different_tags++;
-					}
-				}
-				catch (int e)
-				{
-					throw("Tag ID is out of bound. Try increasing the size of the array 'points'");
-				}
+	//					different_tags++;
+	//				}
+	//			}
+	//			catch (int e)
+	//			{
+	//				throw("Tag ID is out of bound. Try increasing the size of the array 'points'");
+	//			}
 
-			}
-		}
+	//		}
+	//	}
 
-		// if different_tags is 0 then this pose has no corresponding features with previous poses
-		// and to be removed
-		if (different_tags == 0)
-		{
-			unStoreMarkersAligned(i); // this is necessary to avoid misguiding the following poses
-			remove_indices.push_back(i);
-			continue;
-		}
+	//	// if different_tags is 0 then this pose has no corresponding features with previous poses
+	//	// and to be removed
+	//	if (different_tags == 0)
+	//	{
+	//		unStoreMarkersAligned(i); // this is necessary to avoid misguiding the following poses
+	//		remove_indices.push_back(i);
+	//		continue;
+	//	}
 
-		aligns[i].compute_scale();
+	//	aligns[i].compute_scale();
 
-		apply_scale(aligns[i].m_s, aligns[i].m_points1);
-		apply_scale(aligns[i].m_s, vertices_3d2);
-		std::cout << "scale factor: " << aligns[i].m_s << std::endl;
-		// computing the transformation matrix
-		std::cout << "Applying transformation" << std::endl;
-		aligns[i].compute_trans();
-		
-		aligns[i].apply(vertices_3d2, transformed);
-		vertices_3d2 = transformed;
+	//	apply_scale(aligns[i].m_s, aligns[i].m_points1);
+	//	apply_scale(aligns[i].m_s, vertices_3d2);
+	//	std::cout << "scale factor: " << aligns[i].m_s << std::endl;
+	//	// computing the transformation matrix
+	//	std::cout << "Applying transformation" << std::endl;
+	//	aligns[i].compute_trans();
+	//	
+	//	aligns[i].apply(vertices_3d2, transformed);
+	//	vertices_3d2 = transformed;
 
-		GLOBAL_HELPERS::eigenVector_to_pclCloud(transformed, transforming);
-		GLOBAL_HELPERS::eigenVector_color_to_pclCloud(color_vertices, transforming);
+	//	GLOBAL_HELPERS::eigenVector_to_pclCloud(transformed, transforming);
+	//	GLOBAL_HELPERS::eigenVector_color_to_pclCloud(color_vertices, transforming);
 
-		*cloud += *transforming;
-	}
+	//	cloudToPolygonMesh(transforming, meshes[i]);
+	//	std::string prefix = "polygon";
+	//	std::vector<char> chars(prefix.begin(), prefix.end() + prefix.length() + viewerId);
+	//	const std::string meshid = strcat(&chars[0], "" + i);
+	//	viewer->addPolygonMesh(*meshes[i], meshid);
+	//	viewerId++;
+	//}
 
 
 	// removing all corresponding data of the poses that could not align
 	for (int i = 0; i < remove_indices.size(); i++)
 	{
-		clouds.erase(clouds.begin() + remove_indices[i]);
+		meshes[remove_indices[i]].reset();
+		meshes.erase(meshes.begin() + remove_indices[i]);
 		aligns.erase(aligns.begin() + remove_indices[i]);
 		tags.erase(tags.begin() + remove_indices[i]);
 	}
 
 	std::cout << "aligns size: " << aligns.size() << std::endl;
 	std::cout << "tags size: " << tags.size() << std::endl;
-	std::cout << "clouds size: " << clouds.size() << std::endl;
+	std::cout << "poses size: " << meshes.size() << std::endl;
 
 
-	cur_ser = clouds.size();
-	viewer->removeAllPointClouds();
-	viewer->addPointCloud(cloud, "cloud");
-	//viewer->updatePointCloud(cloud, "cloud");
+	cur_ser = meshes.size();
 	ui->qvtkWidget->update();
 
 	ui->comboBox_clouds_serial->clear();
 	ui->comboBox_clouds_serial->addItem("NONE");
-	for (int i = 0; i < clouds.size(); i++)
+	for (int i = 0; i < meshes.size(); i++)
 	{
 		ui->comboBox_clouds_serial->addItem(QString::number(i));
 	}
-	ui->comboBox_clouds_serial->setCurrentIndex(clouds.size());
+	ui->comboBox_clouds_serial->setCurrentIndex(meshes.size());
 }
 
 
@@ -787,6 +871,64 @@ void pclviewer::save_data_buttonPressed()
 		//pcl::io::saveOBJFile(str_out.str() + ".obj", triangles);
 		std::cout << "saved " << str_out.str() + ".obj" << std::endl;
 	}
+}
 
+
+void pclviewer::addMeshToViewer(pcl::PolygonMesh::Ptr polymesh, int id)
+{
+	switch (id)
+	{
+
+	case 0:
+		if (!viewer->addPolygonMesh(*polymesh, "0"))
+		{
+			dbug << "duplicate id for mesh: " << id << ". chose another id" << std::endl;
+		}
+		break;
+	case 1:
+		if (!viewer->addPolygonMesh(*polymesh, "1"))
+		{
+			dbug << "duplicate id for mesh: " << id << ". chose another id" << std::endl;
+		}
+		break;
+	case 2:
+		if (!viewer->addPolygonMesh(*polymesh, "2"))
+		{
+			dbug << "duplicate id for mesh: " << id << ". chose another id" << std::endl;
+		}
+		break;
+	case 3:
+		if (!viewer->addPolygonMesh(*polymesh, "3"))
+		{
+			dbug << "duplicate id for mesh: " << id << ". chose another id" << std::endl;
+		}
+		break;
+	case 4:
+		if (!viewer->addPolygonMesh(*polymesh, "4"))
+		{
+			dbug << "duplicate id for mesh: " << id << ". chose another id" << std::endl;
+		}
+		break;
+	case 5:
+		if (!viewer->addPolygonMesh(*polymesh, "5"))
+		{
+			dbug << "duplicate id for mesh: " << id << ". chose another id" << std::endl;
+		}
+		break;
+	case 6:
+		if (!viewer->addPolygonMesh(*polymesh, "6"))
+		{
+			dbug << "duplicate id for mesh: " << id << ". chose another id" << std::endl;
+		}
+		break;
+	case 7:
+		if (!viewer->addPolygonMesh(*polymesh, "7"))
+		{
+			dbug << "duplicate id for mesh: " << id << ". chose another id" << std::endl;
+		}
+		break;
+	default:
+		break;
+	}
 	
 }
