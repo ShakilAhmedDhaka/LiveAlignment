@@ -9,6 +9,7 @@
 #include <pcl/point_types.h>
 #include <pcl/visualization/pcl_visualizer.h>
 #include <pcl/io/pcd_io.h>
+#include <pcl/features/integral_image_normal.h>
 
 // Visualization Toolkit (VTK)
 #include <vtkRenderWindow.h>
@@ -61,6 +62,8 @@ private:
 	void unStoreMarkersAligned(int current_serial);
 
 	void cloudToPolygonMesh(pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud, pcl::PolygonMesh::Ptr& mesh);
+	void getNormal(boost::shared_ptr<pcl::PointCloud<pcl::PointXYZRGB>>& cloud_align_copy);
+	std::string getAngleNormals(int angle_threshold);
 	
 protected:
 	
@@ -71,6 +74,7 @@ protected:
 	
 	boost::shared_ptr<pcl::PointCloud<pcl::PointXYZRGB>> cloud_aligned;
 	boost::shared_ptr<pcl::PointCloud<pcl::PointXYZRGB>> cloud;
+	pcl::PointCloud<pcl::Normal>::Ptr normals;
 	boost::shared_ptr<pcl::PointCloud<pcl::PointXYZRGB>> cloudFiltered;
 	std::vector< boost::shared_ptr<pcl::PointCloud<pcl::PointXYZRGB>> > clouds;
 	std::vector< pcl::PolygonMesh::Ptr > meshes;

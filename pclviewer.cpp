@@ -28,8 +28,9 @@ pclviewer::pclviewer(int argc, char** argv, QWidget *parent) :
 	
 	//capture.capture_frame();
 	// Setup the cloud pointer
-	cloud_aligned = boost::shared_ptr<pcl::PointCloud<pcl::PointXYZRGB>>();
+	cloud_aligned = boost::shared_ptr<pcl::PointCloud<pcl::PointXYZRGB>>(new pcl::PointCloud<pcl::PointXYZRGB>);
 	cloud = boost::shared_ptr<pcl::PointCloud<pcl::PointXYZRGB>>();
+	normals = pcl::PointCloud<pcl::Normal>::Ptr(new pcl::PointCloud<pcl::Normal>);
 	// The number of points in the cloud
 	capture.capture_frame();
 	//cloud = capture.cloud;
@@ -49,6 +50,8 @@ pclviewer::pclviewer(int argc, char** argv, QWidget *parent) :
 
 
 	viewer_aligned->addPointCloud (cloud_aligned, "cloud_aligned");
+	viewer_aligned->addPointCloudNormals<pcl::PointXYZRGB, pcl::Normal>(cloud_aligned, normals, 100, 0.05, "normals");
+	viewer_aligned->addText("", 20, 20, 15, 1.0, 0.0, 0.0, "percentage");
 	//viewer->addPointCloud (cloud, "cloud");
 
 	qtimer = new QTimer(this);
@@ -65,7 +68,8 @@ pclviewer::pclviewer(int argc, char** argv, QWidget *parent) :
  
 	//cloud = boost::shared_ptr<pcl::PointCloud<pcl::PointXYZRGB>>(clouds[0]);
   
-	viewer_aligned->setCameraPosition(0.0, 0.0, -5000.0, 0.0, -1.0, -1.0, 0);
+	//viewer_aligned->setCameraPosition(0.0, 0.0, -5000.0, 0.0, -1.0, -1.0, 0);
+	viewer_aligned->setCameraPosition(0.0, 0.0, -5.0, 0.0, -1.0, -1.0, 0);
 	viewer->setCameraPosition(0.0, 0.0, -5000.0, 0.0, -1.0, -1.0, 0);
 	//viewer_aligned->resetCamera();
 	//viewer->resetCamera();
@@ -93,6 +97,7 @@ void pclviewer::closeEvent(QCloseEvent* event)
 	qtimer->stop();
 	cloud.reset();
 	cloud_aligned.reset();
+	normals.reset();
 	for (int i = meshes.size()-1; i >= 0; i--)
 	{
 		meshes[i].reset();
@@ -112,11 +117,81 @@ void pclviewer::closeEvent(QCloseEvent* event)
 }
 
 
+
+void pclviewer::getNormal(boost::shared_ptr<pcl::PointCloud<pcl::PointXYZRGB>>& cloud_aligned_copy)
+{
+	cloud_aligned_copy->is_dense = false;
+	for (int i = 0; i < cloud_aligned_copy->width; i++)
+	{
+		for (int j = 0; j < cloud_aligned_copy->height; j++)
+		{
+			cloud_aligned_copy->at(i, j).x /= 1000.0f;
+			cloud_aligned_copy->at(i, j).y /= 1000.0f;
+			cloud_aligned_copy->at(i, j).z /= 1000.0f;
+		}
+
+	}
+
+
+	pcl::IntegralImageNormalEstimation<pcl::PointXYZRGB, pcl::Normal> ne;
+	ne.setNormalEstimationMethod(ne.AVERAGE_3D_GRADIENT);
+	ne.setMaxDepthChangeFactor(0.02f);
+	ne.setNormalSmoothingSize(10.0f);
+	ne.setInputCloud(cloud_aligned_copy);
+	ne.compute(*normals);
+}
+
+
+std::string pclviewer::getAngleNormals(int angle_threshold)
+{
+	float in_angle_range = 0.0, valid_points = 0.0f, angle;
+	for (int i = 0; i < normals->width; i++)
+	{
+		for (int j = 0; j < normals->height; j++)
+		{
+			if (isnan(normals->at(i, j).normal[0]) || isnan(normals->at(i, j).normal[1]) || isnan(normals->at(i, j).normal[2]))  continue;
+			valid_points++;
+			Eigen::Vector3d norm = Eigen::Vector3d(normals->at(i, j).normal[0], normals->at(i, j).normal[1], normals->at(i, j).normal[2]);
+			norm = norm / norm.norm();
+
+			// normal are pointing along negetive z-axis
+			// unit vector along positive z-axis is (0,0,1).
+			// that means dot product only depends on the z
+			// dimension of the normal. to make normal orient
+			// in the direction of z-axis it was multiplied by -1.
+			angle = acos(-norm[2]) * 180 / 3.1416;
+
+			if (angle <= angle_threshold) in_angle_range++;
+
+			//std::cout << "angle: " << angle << std::endl;
+			//normals->at(i, j) = pcl::Normal(norm)
+		}
+	}
+
+	double percentage = (in_angle_range / valid_points) * 100.0;
+	//std::cout << "total points: " << normals->width * normals->height << std::endl;
+	std::cout << "valid points: " << valid_points << " percentage: " << percentage << std::endl;
+	int div = int(floor(percentage));
+	int rem = int(percentage * 100.0f) % 100;
+	std::string percentage_str = std::to_string(div) + "." + std::to_string(rem) + "%";
+
+	return percentage_str;
+}
+
 void pclviewer::processFrameAndUpdateGUI()
 {
 	capture.capture_frame();
 
-	viewer_aligned->updatePointCloud(cloud_aligned, "cloud_aligned");
+	boost::shared_ptr<pcl::PointCloud<pcl::PointXYZRGB>> cloud_aligned_copy(new pcl::PointCloud<pcl::PointXYZRGB>(*cloud_aligned)); // deep copy
+	getNormal(cloud_aligned_copy); // calculates normals
+	// calculates percentage of angle (how many within 30 degree) between surface normals and z-axis of camera
+	std::string percentage_str = getAngleNormals(30);
+	
+	viewer_aligned->updatePointCloud(cloud_aligned_copy, "cloud_aligned");
+	viewer_aligned->removePointCloud("normals");
+	viewer_aligned->addPointCloudNormals<pcl::PointXYZRGB, pcl::Normal>(cloud_aligned_copy, normals, 100, 0.05, "normals");
+	viewer_aligned->setPointCloudRenderingProperties(pcl::visualization::PCL_VISUALIZER_COLOR, 0.0, 1.0, 0.0, "normals");
+	viewer_aligned->updateText(percentage_str.c_str(), 20, 20, 15, 1.0, 0.0, 0.0, "percentage");
 	ui->qvtkWidget_2->update();
 	
 	// we know the size of captured color frame and its not odd
