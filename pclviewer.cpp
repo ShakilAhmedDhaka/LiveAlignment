@@ -3,7 +3,7 @@
 #include "visualizer.h"
 
 #include <pcl/filters/voxel_grid.h>
-
+#include <pcl/surface/vtk_smoothing/vtk_utils.h>
 
 
 #define MINIMUM_CORNERS_IN_A_TAG 3
@@ -30,6 +30,7 @@ pclviewer::pclviewer(int argc, char** argv, QWidget *parent) :
 	// Setup the cloud pointer
 	cloud_aligned = boost::shared_ptr<pcl::PointCloud<pcl::PointXYZRGB>>(new pcl::PointCloud<pcl::PointXYZRGB>);
 	cloud = boost::shared_ptr<pcl::PointCloud<pcl::PointXYZRGB>>();
+	globalCloud = boost::shared_ptr<pcl::PointCloud<pcl::PointXYZRGB>>(new pcl::PointCloud<pcl::PointXYZRGB>);
 	normals = pcl::PointCloud<pcl::Normal>::Ptr(new pcl::PointCloud<pcl::Normal>);
 	// The number of points in the cloud
 	capture.capture_frame();
@@ -95,24 +96,6 @@ void pclviewer::closeEvent(QCloseEvent* event)
 {
 	reset_buttonPressed();
 	qtimer->stop();
-	cloud.reset();
-	cloud_aligned.reset();
-	normals.reset();
-	for (int i = meshes.size()-1; i >= 0; i--)
-	{
-		meshes[i].reset();
-	}
-	std::vector<pcl::PolygonMesh::Ptr>().swap(meshes);
-	std::vector<TBasic::RSAlign>().swap(aligns);
-	std::vector< std::vector<GLOBAL_HELPERS::Global_helpers::TagPoints> >().swap(tags);
-
-
-	viewer_aligned->removeAllPointClouds();
-	viewer_aligned.reset();
-	viewer->removeAllPointClouds();
-	viewer.reset();
-	dbug << "viewers closed" << std::endl;
-	dbug.close();
 	//capture.~Capture();
 }
 
@@ -181,7 +164,6 @@ std::string pclviewer::getAngleNormals(int angle_threshold)
 void pclviewer::processFrameAndUpdateGUI()
 {
 	capture.capture_frame();
-
 	boost::shared_ptr<pcl::PointCloud<pcl::PointXYZRGB>> cloud_aligned_copy(new pcl::PointCloud<pcl::PointXYZRGB>(*cloud_aligned)); // deep copy
 	getNormal(cloud_aligned_copy); // calculates normals
 	// calculates percentage of angle (how many within 30 degree) between surface normals and z-axis of camera
@@ -433,11 +415,12 @@ void pclviewer::storeMarkersAligned(int current_frame)
 
 void pclviewer::cloudToPolygonMesh(pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud, pcl::PolygonMesh::Ptr& mesh)
 {
+	dbug << "cloud height: " << cloud->height << " cloud width: " << cloud->width << std::endl;
 	pcl::PolygonMesh::Ptr old_mesh(new pcl::PolygonMesh);
 	pcl::OrganizedFastMesh<pcl::PointXYZRGB> fast_mesh;
 	fast_mesh.setInputCloud(cloud);
 	fast_mesh.reconstruct(*old_mesh);
-
+	dbug << "cloud height: " << cloud->height << " cloud width: " << cloud->width << std::endl;
 
 	mesh->polygons.clear();
 	mesh->cloud.data.clear();
@@ -523,6 +506,7 @@ void pclviewer::cloudToPolygonMesh(pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud,
 	int discarded_faces = 0, common_vertices = 0, average_depth_face = 0, discard_for_difference = 0;
 	mesh->polygons.resize(old_mesh->polygons.size());
 	std::vector<pcl::Vertices, std::allocator<pcl::Vertices>>::iterator face;
+	std::vector<std::vector<unsigned int>> temp_faces;
 	for (face = old_mesh->polygons.begin(); face != old_mesh->polygons.end(); face++)
 	{
 		unsigned int v1 = face->vertices[0];
@@ -563,10 +547,29 @@ void pclviewer::cloudToPolygonMesh(pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud,
 				{
 					
 				}
-				pcl::Vertices newFace;
-				newFace.vertices = { indicesMap[v1], indicesMap[v2], indicesMap[v3], indicesMap[v4] };
-				mesh->polygons.push_back(newFace);
+
+				std::vector<unsigned int> tmp;
+				//pcl::Vertices newFace;
+				
+				tmp.push_back(indicesMap[v1]);
+				tmp.push_back(indicesMap[v2]);
+				tmp.push_back(indicesMap[v3]);
+				tmp.push_back(indicesMap[v4]);
+				temp_faces.push_back(tmp);
+				//newFace.vertices = { indicesMap[v1], indicesMap[v2], indicesMap[v3], indicesMap[v4] };
+				//mesh->polygons.push_back(newFace);
 			}
+		}
+	}
+
+
+	mesh->polygons.resize(temp_faces.size());
+	for (int i = 0; i < temp_faces.size(); i++)
+	{
+		mesh->polygons[i].vertices.resize(4);
+		for (int j = 0; j < 4; j++)
+		{
+			mesh->polygons[i].vertices[j] = temp_faces[i][j];
 		}
 	}
 
@@ -587,6 +590,8 @@ void pclviewer::add_cloud_buttonPressed()
 		dbug << "adding pose: 0" << std::endl;
 		meshes.resize(1);
 		meshes[0] = pcl::PolygonMesh::Ptr(new pcl::PolygonMesh);
+		// keeping global cloud to later on create global mesh
+		*globalCloud += *cloud_aligned;
 		cloudToPolygonMesh(cloud_aligned, meshes[0]);
 
 		if (!viewer->addPolygonMesh(*meshes[cur_ser], meshids[cur_ser]))
@@ -654,6 +659,7 @@ void pclviewer::add_cloud_buttonPressed()
 		std::cout << "Applying transformation" << std::endl;
 		aligns[cur_ser].compute_trans();
 		
+		*globalCloud += *transforming;
 		cloudToPolygonMesh(transforming, meshes[cur_ser]);
 
 		if (!viewer->addPolygonMesh(*meshes[cur_ser], meshids[cur_ser]))
@@ -705,6 +711,24 @@ void pclviewer::reset_buttonPressed()
 	ui->comboBox_clouds_serial->clear();
 	ui->comboBox_clouds_serial->addItem("NONE");
 
+	cloud.reset();
+	cloud_aligned.reset();
+	normals.reset();
+	for (int i = meshes.size() - 1; i >= 0; i--)
+	{
+		meshes[i].reset();
+	}
+	std::vector<pcl::PolygonMesh::Ptr>().swap(meshes);
+	std::vector<TBasic::RSAlign>().swap(aligns);
+	std::vector< std::vector<GLOBAL_HELPERS::Global_helpers::TagPoints> >().swap(tags);
+
+
+	viewer_aligned->removeAllPointClouds();
+	viewer_aligned.reset();
+	viewer->removeAllPointClouds();
+	viewer.reset();
+	dbug << "viewers closed" << std::endl;
+	dbug.close();
 	dbug << "resetting was done succesfully" << std::endl;
 }
 
@@ -844,58 +868,161 @@ void pclviewer::remove_cloud_buttonPressed()
 }
 
 
+
+
+
+
+void combinePolyData(vtkSmartPointer<vtkPolyData> poly_data1, vtkSmartPointer<vtkPolyData> poly_data2, vtkSmartPointer<vtkPolyData>& poly_data)
+{
+	//Append the two meshes
+	vtkSmartPointer<vtkAppendPolyData> appendFilter = vtkSmartPointer<vtkAppendPolyData>::New();
+	appendFilter->AddInputData(poly_data1);
+	appendFilter->AddInputData(poly_data2);
+
+	// Remove any duplicate points.
+	vtkSmartPointer<vtkCleanPolyData> cleanFilter = vtkSmartPointer<vtkCleanPolyData>::New();
+	cleanFilter->SetInputConnection(appendFilter->GetOutputPort());
+	cleanFilter->Update();
+
+	poly_data = cleanFilter->GetOutput();
+}
+
+
+void writePoly(pcl::PolygonMesh::Ptr mesh, std::string path)
+{
+	pcl::PointCloud<pcl::PointXYZRGB> cld;
+	pcl::fromPCLPointCloud2(mesh->cloud, cld);
+
+	std::ofstream ofile(path.c_str());
+	ofile << "ply" << endl;
+	ofile << "format ascii 1.0" << endl;
+	ofile << "comment PCL generated" << endl;
+	ofile << "element vertex " << cld.size() << endl;
+	ofile << "property float x" << endl;
+	ofile << "property float y" << endl;
+	ofile << "property float z" << endl;
+	ofile << "property uchar red" << endl;
+	ofile << "property uchar green" << endl;
+	ofile << "property uchar blue" << endl;
+	ofile << "element face " << mesh->polygons.size() << endl;
+	ofile << "property list uchar int vertex_indices" << endl;
+	ofile << "end_header" << endl;
+
+	for (int i = 0; i < cld.size(); i++)
+	{
+		ofile << cld.at(i).x << " " << cld.at(i).y << " " << cld.at(i).z << std::endl;
+			//cld.at(i).r << " " << cld.at(i).g << " " << cld.at(i).b << std::endl;
+	}
+
+	std::cout << "point data written" << std::endl;
+
+
+	std::vector<pcl::Vertices, std::allocator<pcl::Vertices>>::iterator face;
+	for (face = mesh->polygons.begin(); face != mesh->polygons.end(); face++)
+	{
+		unsigned int v1 = face->vertices[0];
+		unsigned int v2 = face->vertices[1];
+		unsigned int v3 = face->vertices[2];
+		unsigned int v4 = face->vertices[3];
+		ofile << v1 << " " << v2 << " " << v3 << " "<< v4 << std::endl;
+	}
+	
+	
+	std::cout << "face data written" << std::endl;
+}
+
+
 void pclviewer::save_data_buttonPressed()
 {
-	for (int i = 0; i < clouds.size(); i++)
+	//for (int i = 0; i < clouds.size(); i++)
+	//{
+	//	std::ostringstream str_out, obj_file;
+	//	str_out << "../outputs/office/" << "capture_" << i << ".pcd";
+	//	obj_file << "../outputs/office/" << "capture_" << i << ".obj";
+	//	pcl::io::savePCDFileASCII(str_out.str().c_str(), *(clouds[i]));
+
+	//	std::ofstream outfile(obj_file.str().c_str());
+
+
+	//	pcl::PolygonMesh triangles;
+	//	pcl::OrganizedFastMesh<pcl::PointXYZRGB> ofm;
+
+	//	ofm.setInputCloud(clouds[i]);
+	//	ofm.setMaxEdgeLength(1.5);
+	//	ofm.setTrianglePixelSize(1);
+	//	ofm.setTriangulationType(pcl::OrganizedFastMesh<pcl::PointXYZRGB>::TRIANGLE_ADAPTIVE_CUT);
+
+	//	// Reconstruct
+	//	ofm.reconstruct(triangles);
+
+	//	outfile << "# Vertices: " << clouds[i]->size() << endl;
+	//	outfile << "# Faces: " << triangles.polygons.size() << endl;
+
+	//	for (int j = 0; j < (*clouds[i]).size(); j++)
+	//	{
+	//		std::string r = std::to_string(clouds[i]->at(j).r) + "";
+	//		std::string g = std::to_string(clouds[i]->at(j).g) + "";
+	//		std::string b = std::to_string(clouds[i]->at(j).b) + "";
+
+	//		//std::cout << "v " << clouds[i]->at(j).x << " " << clouds[i]->at(j).y << " " << clouds[i]->at(j).z << " " <<
+	//		//	r << " " << g << " " << b << endl;
+	//		outfile << "v " << clouds[i]->at(j).x << " " << clouds[i]->at(j).y << " " << clouds[i]->at(j).z << " " << 
+	//			r.c_str() << " " << g.c_str() << " " << b.c_str() <<endl;
+	//	}
+
+
+	//	
+
+	//	for (int i = 0; i < triangles.polygons.size(); i++)
+	//	{
+	//		pcl::Vertices face = triangles.polygons.at(i);
+	//		outfile << "f " << face.vertices[0] << " " << face.vertices[1] << " " << face.vertices[2] << endl;
+
+	//	}
+
+	//	outfile << "# End of File" << endl;
+
+	//	outfile.close();
+	//	//pcl::io::saveOBJFile(str_out.str() + ".obj", triangles);
+	//	std::cout << "saved " << str_out.str() + ".obj" << std::endl;
+	//}
+
+	//vtkSmartPointer<vtkPolyData> globalPoly = vtkSmartPointer<vtkPolyData>::New(); // OR poly_data->Reset();
+	//vtkSmartPointer<vtkPolyData> localPoly = vtkSmartPointer<vtkPolyData>::New(); // OR poly_data->Reset();
+	//vtkSmartPointer<vtkPolyData> poly_data;
+	//
+	//pcl::VTKUtils::mesh2vtk(*meshes[0], globalPoly);
+	//for (int i = 1; i < cur_ser; i++)
+	//{
+	//	pcl::VTKUtils::mesh2vtk(*meshes[0], localPoly);
+	//	combinePolyData(globalPoly, localPoly, poly_data);
+	//	globalPoly = poly_data;
+	//}
+
+	//pcl::PolygonMesh triangles;
+	////pcl::VTKUtils::convertToPCL(globalPoly, triangles);
+	//pcl::VTKUtils::vtk2mesh(globalPoly, triangles);
+
+
+	//std::cout << "Surface reconstruction done" << std::endl;
+	//std::cout << "Mesh total vertices: " << triangles.cloud.data.size() << std::endl;
+	//std::cout << "Mesh total faces: " << triangles.polygons.size() << std::endl;
+	//pcl::io::savePLYFile("E:/LiveAlignment/outputs/finalMesh.ply", triangles);
+	
+	//qtimer->stop();
+
+	std::string str = "E:/LiveAlignment/outputs/finalMesh";
+	for (int i = 0; i < meshes.size(); i++)
 	{
-		std::ostringstream str_out, obj_file;
-		str_out << "../outputs/office/" << "capture_" << i << ".pcd";
-		obj_file << "../outputs/office/" << "capture_" << i << ".obj";
-		pcl::io::savePCDFileASCII(str_out.str().c_str(), *(clouds[i]));
-
-		std::ofstream outfile(obj_file.str().c_str());
-
-
-		pcl::PolygonMesh triangles;
-		pcl::OrganizedFastMesh<pcl::PointXYZRGB> ofm;
-
-		ofm.setInputCloud(clouds[i]);
-		ofm.setMaxEdgeLength(1.5);
-		ofm.setTrianglePixelSize(1);
-		ofm.setTriangulationType(pcl::OrganizedFastMesh<pcl::PointXYZRGB>::TRIANGLE_ADAPTIVE_CUT);
-
-		// Reconstruct
-		ofm.reconstruct(triangles);
-
-		outfile << "# Vertices: " << clouds[i]->size() << endl;
-		outfile << "# Faces: " << triangles.polygons.size() << endl;
-
-		for (int j = 0; j < (*clouds[i]).size(); j++)
-		{
-			std::string r = std::to_string(clouds[i]->at(j).r) + "";
-			std::string g = std::to_string(clouds[i]->at(j).g) + "";
-			std::string b = std::to_string(clouds[i]->at(j).b) + "";
-
-			//std::cout << "v " << clouds[i]->at(j).x << " " << clouds[i]->at(j).y << " " << clouds[i]->at(j).z << " " <<
-			//	r << " " << g << " " << b << endl;
-			outfile << "v " << clouds[i]->at(j).x << " " << clouds[i]->at(j).y << " " << clouds[i]->at(j).z << " " << 
-				r.c_str() << " " << g.c_str() << " " << b.c_str() <<endl;
-		}
-
-
-		
-
-		for (int i = 0; i < triangles.polygons.size(); i++)
-		{
-			pcl::Vertices face = triangles.polygons.at(i);
-			outfile << "f " << face.vertices[0] << " " << face.vertices[1] << " " << face.vertices[2] << endl;
-
-		}
-
-		outfile << "# End of File" << endl;
-
-		outfile.close();
-		//pcl::io::saveOBJFile(str_out.str() + ".obj", triangles);
-		std::cout << "saved " << str_out.str() + ".obj" << std::endl;
+		std::string path = str + std::to_string(i) + ".ply";
+		std::cout << "Saving: " << path << std::endl;
+		std::cout << "Mesh total vertices: " << meshes[i]->cloud.width << std::endl;
+		std::cout << "Mesh total faces: " << meshes[i]->polygons.size() << std::endl;
+		pcl::io::savePLYFile(path.c_str(), *meshes[i]);
+		//writePoly(meshes[i], path);
 	}
+
+	std::cout << "Meshes are saved" << std::endl;
+	//reset_buttonPressed();
+	//QApplication::closeAllWindows();
 }

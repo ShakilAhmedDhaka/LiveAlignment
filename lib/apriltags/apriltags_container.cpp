@@ -131,8 +131,8 @@ const char* Apriltags::set_tag_param(const char* family)
 
 
 	// Initialize tag detector with options
-	//tf = tag25h7_create();
-	tf = tag36h11_create();
+	tf = tag25h7_create();
+	//tf = tag36h11_create();
 	const char* famname = getopt_get_string(getopt, "family");
 	//if (!strcmp(famname, "tag36h11"))
 	//	tf = tag36h11_create();
