@@ -1023,6 +1023,26 @@ void pclviewer::save_data_buttonPressed()
 	}
 
 	std::cout << "Meshes are saved" << std::endl;
+
+	double point_error = 0, global_error = 0;
+	std::vector<Eigen::Vector3d> dst;
+	for (int i = 1; i < aligns.size(); i++)
+	{
+		dbug << "Pair: " << i - 1 << "_" << i << ":" << std::endl;
+		dst.clear();
+		aligns[i].apply(aligns[i].m_points1, dst);
+		point_error = 0;
+		for (int j = 0; j < aligns[i].m_points2.size(); j++)
+		{
+			point_error += std::sqrt((aligns[i].m_points2[j] - dst[j]).norm());
+		}
+
+		global_error += point_error;
+		dbug << "Total error: " << point_error << std::endl;
+		dbug << "Average error: " << point_error / aligns[i].m_points2.size() << std::endl;
+	}
+
+	dbug << "Global Error: " << global_error << std::endl;
 	//reset_buttonPressed();
 	//QApplication::closeAllWindows();
 }
