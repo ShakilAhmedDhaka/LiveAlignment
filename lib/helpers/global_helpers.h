@@ -88,9 +88,11 @@ public:
 	{
 		cv::Point point;
 		Eigen::Vector3d point3D;
+		Eigen::Vector3d centerPoint3D;
 		int tag; //id
 		int pos;
 		int cloud_index;
+		int center_cloud_index;
 		int frame_serial;
 		double centerx;
 		double centery;

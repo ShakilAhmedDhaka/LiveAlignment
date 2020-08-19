@@ -6,6 +6,8 @@
 #include <pcl/surface/vtk_smoothing/vtk_utils.h>
 
 
+#define DISTANCE_EXP 1
+
 #define MINIMUM_CORNERS_IN_A_TAG 3
 #define PI_VAL 3.14159265
 
@@ -19,6 +21,8 @@ pclviewer::pclviewer(int argc, char** argv, QWidget *parent) :
 	this->setWindowTitle ("PCL viewer");
 	dbug.open("log.txt");
 	memset(points, 0, sizeof(points));
+	addTagCenter = false;
+	if (DISTANCE_EXP)	expTagAlreadyIn.resize(100,-1);
 
 	transform_align.m_s = 1;
 	transform_align.m_R = Eigen::Matrix<double, 3, 3>::Identity();
@@ -344,6 +348,44 @@ std::map<int, std::vector<double> > pclviewer::getFeaturePoints(Capture& capture
 				//tagsPresent[tags[i].tag][0] = 0.0;
 			}
 		}
+
+		if (addTagCenter)
+		{
+			if (expTagAlreadyIn[tags[i].tag] != -1)	continue;
+			Eigen::Vector4d expP;
+			cv::Point centP = cv::Point(tags[i].centerx, tags[i].centery);
+			if (capture.project_colorcam_to_depthcam(centP, tags[i].center_cloud_index))
+			{
+				expP[0] = tags[i].tag;
+				if (cloud_aligned->points.at(tags[i].center_cloud_index).z == 0)
+				{
+					dbug << "Could not find tag center of: " << tags[i].tag << std::endl;
+					expP[1] = -1;
+					expP[2] = -1;
+					expP[3] = -1;
+				}
+				else
+				{
+					pcl::PointXYZRGB cloud_point = cloud_aligned->points.at(tags[i].center_cloud_index);
+					expP[1] = cloud_point.x;
+					expP[2] = cloud_point.y;
+					expP[3] = cloud_point.z;
+				}
+			}
+			else
+			{
+				dbug << "Could not find tag center of: " << tags[i].tag << std::endl;
+				expP[1] = -1;
+				expP[2] = -1;
+				expP[3] = -1;
+			}
+
+
+			expTagCenters.push_back(expP);
+			expTagAlreadyIn[tags[i].tag] = 1;
+			addTagCenter = false;
+		}
+
 		
 	}
 
@@ -601,6 +643,7 @@ void pclviewer::add_cloud_buttonPressed()
 
 		tags.resize(1);
 		apriltags.get_tags(capture.color_mat, tags[0], 1, 1,0);
+		if (DISTANCE_EXP)	addTagCenter = true;
 		getFeaturePoints(capture, tags[0]);
 		//apriltags.filter_tag(tags[0]);
 		sort(tags[0].begin(), tags[0].end());
@@ -621,6 +664,7 @@ void pclviewer::add_cloud_buttonPressed()
 
 		tags.resize(cur_ser + 1);
 		apriltags.get_tags(*captured_color, tags[cur_ser], 1, 1, cur_ser);
+		if (DISTANCE_EXP)	addTagCenter = true;
 		getFeaturePoints(capture, tags[cur_ser]);
 		//apriltags.filter_tag(tags[cur_ser]);
 		sort(tags[cur_ser].begin(), tags[cur_ser].end());
@@ -1009,9 +1053,9 @@ void pclviewer::save_data_buttonPressed()
 	//std::cout << "Mesh total faces: " << triangles.polygons.size() << std::endl;
 	//pcl::io::savePLYFile("E:/LiveAlignment/outputs/finalMesh.ply", triangles);
 	
-	//qtimer->stop();
+	//qtimer->stop(); 
 
-	std::string str = "E:/LiveAlignment/outputs/finalMesh";
+	std::string str = "E:/LiveAlignment/outputs/experiments_distance/finalMesh";
 	for (int i = 0; i < meshes.size(); i++)
 	{
 		std::string path = str + std::to_string(i) + ".ply";
@@ -1043,6 +1087,34 @@ void pclviewer::save_data_buttonPressed()
 	}
 
 	dbug << "Global Error: " << global_error << std::endl;
+
+
+	if (DISTANCE_EXP)
+	{
+		dbug << std::endl;
+		dbug << "Experimentation for distances of markers:" << std::endl;
+		for (int i = 0; i < expTagCenters.size(); i++)
+		{
+			for (int j = i + 1; j < expTagCenters.size(); j++)
+			{
+				Eigen::Vector3d p1 = Eigen::Vector3d(expTagCenters[i][1],
+					expTagCenters[i][2], expTagCenters[i][3]);
+				Eigen::Vector3d p2 = Eigen::Vector3d(expTagCenters[j][1],
+					expTagCenters[j][2], expTagCenters[j][3]);
+				if (p1[0] == -1 || p2[0] == -1)
+				{
+					if(p1[0] == -1)	dbug << "Tag: " << expTagCenters[i][0] << " is missing" << std::endl;
+					if(p2[0] == -1)	dbug << "Tag: " << expTagCenters[j][0] << " is missing" << std::endl;
+					continue;
+				}
+
+				double dist = (p1 - p2).norm();
+
+				dbug << "marker pair: " << expTagCenters[i][0] << "-" << expTagCenters[j][0] << ": " << dist << std::endl;
+			}
+		}
+	}
+
 	//reset_buttonPressed();
 	//QApplication::closeAllWindows();
 }

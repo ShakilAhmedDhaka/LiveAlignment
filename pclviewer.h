@@ -89,6 +89,9 @@ protected:
 	std::vector<TBasic::RSAlign> aligns;
 	TBasic::RSAlign transform_align;
 
+	std::vector<Eigen::Vector4d> expTagCenters;
+	std::vector<int> expTagAlreadyIn;
+	bool addTagCenter;
 
 
 	// For each TAG: Find first index by Tag ID (Tag.tag) * 14
