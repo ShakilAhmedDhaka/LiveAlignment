@@ -66,15 +66,8 @@ pclviewer::pclviewer(int argc, char** argv, QWidget *parent) :
 	//connect (ui->horizontalSlider_R, SIGNAL (valueChanged (int)), this, SLOT (redSliderValueChanged (int)));
 	//connect (ui->horizontalSlider_R, SIGNAL (sliderReleased ()), this, SLOT (RGBsliderReleased ()));
  
-	//cloud = boost::shared_ptr<pcl::PointCloud<pcl::PointXYZRGB>>(clouds[0]);
-  
-	//viewer_aligned->setCameraPosition(0.0, 0.0, -5000.0, 0.0, -1.0, -1.0, 0);
 	viewer_aligned->setCameraPosition(0.0, 0.0, -5.0, 0.0, -1.0, -1.0, 0);
 	viewer->setCameraPosition(0.0, 0.0, -5000.0, 0.0, -1.0, -1.0, 0);
-	//viewer_aligned->resetCamera();
-	//viewer->resetCamera();
-	//viewer->spinOnce();
-	//viewer_aligned->spinOnce();
 	ui->qvtkWidget_2->update();
 	ui->qvtkWidget->update ();
 	std::cout << "debug6" << std::endl;
@@ -218,71 +211,16 @@ void pclviewer::processFrameAndUpdateGUI()
 	{
 		bool isCorrectAngle = false;
 
-		if (tagsPresent.find(atags[i].tag) == tagsPresent.end())	continue;
+		//if (tagsPresent.find(atags[i].tag) == tagsPresent.end())	continue;
+
+		if (perc <= 30) isCorrectAngle = true;
+		apriltags.vis_apriltags(color_show, std::vector<GLOBAL_HELPERS::Global_helpers::TagPoints>(atags.begin() + i, atags.begin() + i + 4),
+			points, TAG_BUFFER, TAG_CORNER_BUFFER,
+			width_offset, height_offset, false, false, false, true, isCorrectAngle);
 		
-		if (tagsPresent[atags[i].tag][0] < MINIMUM_CORNERS_IN_A_TAG)
-		{
-			//std::cout << "********* Not Enough Tags **********" << std::endl;
-			apriltags.vis_apriltags(color_show, std::vector<GLOBAL_HELPERS::Global_helpers::TagPoints> (atags.begin()+i, atags.begin()+i+4), 
-				width_offset, height_offset, true, false, false, true, isCorrectAngle);
-		}
-		else
-		{
-			//std::cout << "********* See If Align **********" << std::endl;
-			//if (MINIMUM_CORNERS_IN_A_TAG >= 3)
-			//{
-			//	std::vector<GLOBAL_HELPERS::Global_helpers::TagPoints> threePoints;
-			//	if (atags[i].cloud_index != -1)	threePoints.push_back(atags[i]);
-			//	if (atags[i + 1].cloud_index != -1)	threePoints.push_back(atags[i + 1]);
-			//	if (atags[i + 2].cloud_index != -1)	threePoints.push_back(atags[i + 2]);
-			//	if (atags[i + 3].cloud_index != -1)	threePoints.push_back(atags[i + 3]);
-
-			//	if (threePoints.size() > 3)	threePoints.pop_back();
-
-			//	//std::cout << "**************** Points Loaded ******************" << std::endl;
-			//	//std::cout << "**************** threePoints size: "<< threePoints.size() << std::endl;
-			//	if (threePoints.size() == 3)
-			//	{
-			//		//Eigen::Vector3d vec1 = threePoints[1].point3D - threePoints[0].point3D;
-			//		//Eigen::Vector3d vec2 = threePoints[2].point3D - threePoints[0].point3D;
-
-			//		//std::cout << "**************** Two Vectors ******************" << std::endl;
-			//		//Eigen::Vector3d sNormal = vec1.cross(vec2);
-			//		//sNormal = sNormal.normalized();
-
-			//		//std::cout << "**************** Normalized ******************" << std::endl;
-
-			//		//Eigen::Vector3d zAxis = Eigen::Vector3d(0, 0, -1);
-			//		//double angle = (acos(zAxis.dot(sNormal)) * 180.0) /  PI_VAL;
-
-			//		//if (angle <= 30) isCorrectAngle = true;
-			//		//if (perc <= 30) isCorrectAngle = true;
-			//		//std::cout << "****************Angle: " << angle << std::endl;
-			//	}
-
-			//	threePoints.clear();
-			//}
-			
-			if (perc <= 30) isCorrectAngle = true;
-			apriltags.vis_apriltags(color_show, std::vector<GLOBAL_HELPERS::Global_helpers::TagPoints>(atags.begin() + i, atags.begin() + i + 4), 
-				width_offset, height_offset, false, false, false, true, isCorrectAngle);
-		}
 	}
 
-	//std::cout << "*********End Coloring**********" << std::endl;
-	/*for (std::map<int, std::vector<double> >::iterator it = tagsPresent.begin(); it != tagsPresent.end(); it++)
-	{
-		if (it->second[0] - double(MINIMUM_CORNERS_IN_A_TAG) < -.1)
-		{
-			apriltags.vis_apriltags(color_show, atags, width_offset, height_offset, true, false, false, true);
-		}
-		else
-		{
-			apriltags.vis_apriltags(color_show, atags, width_offset, height_offset, false, false, false, true);
-		}
-	}*/
 	
-
 	cv::resize(color_show, color_show, cv::Size(ui->color_video_label->width(), ui->color_video_label->height()));
 	video_image = QImage((uchar*)color_show.data, color_show.cols,
 	color_show.rows, color_show.step, QImage::Format_RGB32);
@@ -762,79 +700,7 @@ void pclviewer::remove_cloud_buttonPressed()
 	// escaping the pose to be removed. starting after that.
 	boost::shared_ptr<pcl::PointCloud<pcl::PointXYZRGB>> transforming;
 	int viewerId = remove_ind;
-	//for (int i = remove_ind + 1; i < cur_ser; i++)
-	//{
-	//	std::cout << "realigning pose: " << i << std::endl;
-	//	std::vector<Eigen::Vector3d> transformed;
-	//	std::vector<Eigen::Vector3d> vertices_3d2;
-	//	std::vector<Eigen::Vector3d> color_vertices;
-	//	GLOBAL_HELPERS::pclToEigenVector(clouds[i], vertices_3d2);
-	//	GLOBAL_HELPERS::pclToEigenVector_color(clouds[i], color_vertices);
-	//	transforming.reset(new pcl::PointCloud<pcl::PointXYZRGB>(*(clouds[i])));
-
-	//	// clearing previous feature points for alignment
-	//	aligns[i].m_points1.clear();
-	//	aligns[i].m_points2.clear();
-	//	int different_tags = 0;	// different_tags = number of features that matches with some other previously found features
-	//	for (int j = 0; j < tags[i].size(); j++)
-	//	{
-	//		if (tags[i][j].cloud_index != -1)
-	//		{
-	//			int startIndex = tags[i][j].tag * TAG_BUFFER + tags[i][j].pos * TAG_CORNER_BUFFER;
-	//			try
-	//			{
-	//				if (points[startIndex] != 0)
-	//				{
-	//					Eigen::Vector3d pts1 = Eigen::Vector3d(points[startIndex + 1], points[startIndex + 2], points[startIndex + 3]);
-	//					aligns[i].m_points2.push_back(pts1);
-
-	//					Eigen::Vector3d pts2 = tags[i][j].point3D;
-	//					aligns[i].m_points1.push_back(pts2);
-
-	//					different_tags++;
-	//				}
-	//			}
-	//			catch (int e)
-	//			{
-	//				throw("Tag ID is out of bound. Try increasing the size of the array 'points'");
-	//			}
-
-	//		}
-	//	}
-
-	//	// if different_tags is 0 then this pose has no corresponding features with previous poses
-	//	// and to be removed
-	//	if (different_tags == 0)
-	//	{
-	//		unStoreMarkersAligned(i); // this is necessary to avoid misguiding the following poses
-	//		remove_indices.push_back(i);
-	//		continue;
-	//	}
-
-	//	aligns[i].compute_scale();
-
-	//	apply_scale(aligns[i].m_s, aligns[i].m_points1);
-	//	apply_scale(aligns[i].m_s, vertices_3d2);
-	//	std::cout << "scale factor: " << aligns[i].m_s << std::endl;
-	//	// computing the transformation matrix
-	//	std::cout << "Applying transformation" << std::endl;
-	//	aligns[i].compute_trans();
-	//	
-	//	aligns[i].apply(vertices_3d2, transformed);
-	//	vertices_3d2 = transformed;
-
-	//	GLOBAL_HELPERS::eigenVector_to_pclCloud(transformed, transforming);
-	//	GLOBAL_HELPERS::eigenVector_color_to_pclCloud(color_vertices, transforming);
-
-	//	cloudToPolygonMesh(transforming, meshes[i]);
-	//	std::string prefix = "polygon";
-	//	std::vector<char> chars(prefix.begin(), prefix.end() + prefix.length() + viewerId);
-	//	const std::string meshid = strcat(&chars[0], "" + i);
-	//	viewer->addPolygonMesh(*meshes[i], meshid);
-	//	viewerId++;
-	//}
-
-
+	
 	// removing all corresponding data of the poses that could not align
 	for (int i = 0; i < remove_indices.size(); i++)
 	{
@@ -894,8 +760,6 @@ void pclviewer::save_data_buttonPressed()
 			std::string g = std::to_string(clouds[i]->at(j).g) + "";
 			std::string b = std::to_string(clouds[i]->at(j).b) + "";
 
-			//std::cout << "v " << clouds[i]->at(j).x << " " << clouds[i]->at(j).y << " " << clouds[i]->at(j).z << " " <<
-			//	r << " " << g << " " << b << endl;
 			outfile << "v " << clouds[i]->at(j).x << " " << clouds[i]->at(j).y << " " << clouds[i]->at(j).z << " " << 
 				r.c_str() << " " << g.c_str() << " " << b.c_str() <<endl;
 		}
@@ -913,7 +777,6 @@ void pclviewer::save_data_buttonPressed()
 		outfile << "# End of File" << endl;
 
 		outfile.close();
-		//pcl::io::saveOBJFile(str_out.str() + ".obj", triangles);
 		std::cout << "saved " << str_out.str() + ".obj" << std::endl;
 	}
 }

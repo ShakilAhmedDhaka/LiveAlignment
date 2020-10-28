@@ -1,6 +1,10 @@
 #include "apriltags_container.h"
 #include "visualizer.h"
 
+void drawBlocks(cv::Mat& frame, cv::Point& bottomLeft, GLOBAL_HELPERS::Global_helpers::TagPoints& aprl_tags,
+	short* feature_points, int blockRadiusColor, int TAG_BUFFER, int TAG_CORNER_BUFFER);
+
+
 
 Apriltags::Apriltags()
 {
@@ -131,31 +135,8 @@ const char* Apriltags::set_tag_param(const char* family)
 
 
 	// Initialize tag detector with options
-	//tf = tag25h7_create();
 	tf = tag25h7_create();
 	const char* famname = getopt_get_string(getopt, "family");
-	//if (!strcmp(famname, "tag36h11"))
-	//	tf = tag36h11_create();
-	//else if (!strcmp(famname, "tag36h10"))
-	//	tf = tag36h10_create();
-	//else if (!strcmp(famname, "tag36artoolkit"))
-	//	tf = tag36artoolkit_create();
-	//else if (!strcmp(famname, "tag25h9"))
-	//	tf = tag25h9_create();
-	//else if (!strcmp(famname, "tag25h7"))
-	//	tf = tag25h7_create();
-	//else if (!strcmp(famname, "tag16h5"))
-	//	tf = tag16h5_create();
-	//else if (!strcmp(family, "tag16h5"))
-	//{
-	//	std::cout << "************ in tag16h5 condition ***************" << std::endl;
-	//	tf = tag16h5_create();
-	//}
-	//else
-	//{
-	//	printf("Unrecognized tag family name. Use e.g. \"tag36h11\".\n");
-	//	exit(-1);
-	//}
 	tf->black_border = getopt_get_int(getopt, "border");
 
 
@@ -174,6 +155,7 @@ const char* Apriltags::set_tag_param(const char* family)
 
 
 void Apriltags::vis_apriltags(cv::Mat& frame, std::vector<GLOBAL_HELPERS::Global_helpers::TagPoints>& aprl_tags,
+	short* feature_points, int TAG_BUFFER, int TAG_CORNER_BUFFER,
 	int width_offset, int height_offset,
 	bool drawMiddleSquare, bool showTagID, bool drawBorder, bool drawCornerBlocks,
 	bool correctAngle)
@@ -196,7 +178,6 @@ void Apriltags::vis_apriltags(cv::Mat& frame, std::vector<GLOBAL_HELPERS::Global
 		if (drawMiddleSquare)
 		{
 			cv::Point center = cv::Point(aprl_tags[i].centerx / width_offset, aprl_tags[i].centery / height_offset);
-			cv::Vec4b red = cv::Vec4b(0, 0, 255, 255);
 			int blockRadiusColor = 5;
 
 			VISH::mark_color_mat(frame, center, red, blockRadiusColor);
@@ -222,10 +203,11 @@ void Apriltags::vis_apriltags(cv::Mat& frame, std::vector<GLOBAL_HELPERS::Global
 		{
 			int blockRadiusColor = 2;
 
-			VISH::mark_color_mat(frame, bottomLeft, red, blockRadiusColor);
-			VISH::mark_color_mat(frame, bottomRight, green, blockRadiusColor);
-			VISH::mark_color_mat(frame, topRight, blue, blockRadiusColor);
-			VISH::mark_color_mat(frame, topLeft, yellow, blockRadiusColor);
+
+			drawBlocks(frame, bottomLeft, aprl_tags[i], feature_points, blockRadiusColor, TAG_BUFFER, TAG_CORNER_BUFFER);
+			drawBlocks(frame, bottomRight, aprl_tags[i+1], feature_points, blockRadiusColor, TAG_BUFFER, TAG_CORNER_BUFFER);
+			drawBlocks(frame, topRight, aprl_tags[i+2], feature_points, blockRadiusColor, TAG_BUFFER, TAG_CORNER_BUFFER);
+			drawBlocks(frame, topLeft, aprl_tags[i+3], feature_points, blockRadiusColor, TAG_BUFFER, TAG_CORNER_BUFFER);
 		}
 		
 		// show the id of each tag
@@ -256,16 +238,8 @@ void Apriltags::vis_apriltags(cv::Mat& frame, std::vector<GLOBAL_HELPERS::Global
 		cv::Vec4b green = cv::Vec4b(0, 255, 0, 255);
 		
 		cv::Mat greenFrame = cv::Mat(frame.rows, frame.cols, CV_8UC4, cv::Scalar(0 , 255, 0, 255));
-		cv::addWeighted(frame, 0.8, greenFrame, 0.2, 0.0, frame);
-		//frame = greenFrame;
-		//VISH::mark_color_mat(frame, center, green, blockRadiusColor);
+		cv::addWeighted(frame, 0.95, greenFrame, 0.05, 0.0, frame);
 	}
-	else if(drawMiddleSquare == false)
-	{
-		cv::Vec4b yellow = cv::Vec4b(0, 255, 255, 255);
-		VISH::mark_color_mat(frame, center, yellow, blockRadiusColor);
-	}
-	
 }
 
 void Apriltags::get_tags(cv::Mat& frame, std::vector<GLOBAL_HELPERS::Global_helpers::TagPoints>& aprl_tags,
@@ -366,4 +340,23 @@ void Apriltags::common_tags(std::vector<GLOBAL_HELPERS::Global_helpers::TagPoint
 	std::cout << "tags1 size: " << tags1.size() << std::endl;
 	std::cout << "tags2 size: " << tags2.size() << std::endl;
 
+}
+
+
+void drawBlocks(cv::Mat& frame, cv::Point& bottomLeft, GLOBAL_HELPERS::Global_helpers::TagPoints& aprl_tags,
+	short* feature_points, int blockRadiusColor, int TAG_BUFFER, int TAG_CORNER_BUFFER)
+{
+	cv::Vec4b red = cv::Vec4b(0, 0, 255, 255);
+	cv::Vec4b green = cv::Vec4b(0, 255, 0, 255);
+	cv::Vec4b yellow = cv::Vec4b(0, 255, 255, 255);
+
+
+	if (aprl_tags.cloud_index != -1)
+	{
+		int startIndex = aprl_tags.tag * TAG_BUFFER + aprl_tags.pos * TAG_CORNER_BUFFER;
+		if (feature_points[startIndex] != 0)	VISH::mark_color_mat(frame, bottomLeft, green, blockRadiusColor);
+		else VISH::mark_color_mat(frame, bottomLeft, yellow, blockRadiusColor);
+
+	}
+	else 	VISH::mark_color_mat(frame, bottomLeft, red, blockRadiusColor);
 }

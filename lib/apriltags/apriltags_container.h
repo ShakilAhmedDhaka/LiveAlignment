@@ -38,6 +38,7 @@ class Apriltags
 		// drawBorder = draws border on the tags
 		// drawBlock = draws blocks on the corners of the tags
 		void vis_apriltags(cv::Mat& frame, std::vector<GLOBAL_HELPERS::Global_helpers::TagPoints>& aprl_tags,
+			short* feature_points, int TAG_BUFFER, int TAG_CORNER_BUFFER,
 			int width_offset=0, int height_offset=0,
 			bool drawMiddleSquare = false, bool showTagID = true, bool drawborder = true, bool drawCornerBlocks = false,
 			bool correctAngle  = false);
