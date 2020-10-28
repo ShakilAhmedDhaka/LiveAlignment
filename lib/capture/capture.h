@@ -31,6 +31,11 @@ private:
 	k4a_calibration_t calibration;
 	k4a_image_t depth_image;
 	k4a_image_t color_image;
+	k4a_image_t xy_table;
+	k4a_image_t transformed_depth_image;
+
+	int color_width;
+	int color_height;
 
 	cv::Mat transformed_depth_mat;
 	int color_image_width_pixels;
@@ -52,6 +57,10 @@ public:
 	bool project_colorcam_to_depthcam(cv::Point colorcam_pixel, int& depthcam_index);
 	//bool project_colorcam_to_depthcam(cv::Point colorcam_pixel, int& depthcam_index, cv::Mat& depth_im, int color_w, int color_h);
 
+
+private:
+	void create_xy_table();
+	void generate_point_cloud(const k4a_image_t depth_image);
 
 private:
 	k4a_memory_destroy_cb_t* cb;

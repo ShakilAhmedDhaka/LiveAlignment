@@ -131,8 +131,8 @@ const char* Apriltags::set_tag_param(const char* family)
 
 
 	// Initialize tag detector with options
+	//tf = tag25h7_create();
 	tf = tag25h7_create();
-	//tf = tag36h11_create();
 	const char* famname = getopt_get_string(getopt, "family");
 	//if (!strcmp(famname, "tag36h11"))
 	//	tf = tag36h11_create();
@@ -254,7 +254,11 @@ void Apriltags::vis_apriltags(cv::Mat& frame, std::vector<GLOBAL_HELPERS::Global
 	if (correctAngle)
 	{
 		cv::Vec4b green = cv::Vec4b(0, 255, 0, 255);
-		VISH::mark_color_mat(frame, center, green, blockRadiusColor);
+		
+		cv::Mat greenFrame = cv::Mat(frame.rows, frame.cols, CV_8UC4, cv::Scalar(0 , 255, 0, 255));
+		cv::addWeighted(frame, 0.8, greenFrame, 0.2, 0.0, frame);
+		//frame = greenFrame;
+		//VISH::mark_color_mat(frame, center, green, blockRadiusColor);
 	}
 	else if(drawMiddleSquare == false)
 	{

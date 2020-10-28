@@ -32,7 +32,6 @@ add_definitions(${PCL_DEFINITIONS})
 # Additional Library Directories
 link_directories(${PCL_LIBRARY_DIRS})
 
-
 find_package(VTK REQUIRED)
 # Load VTK Settings
 include( ${VTK_USE_FILE} )

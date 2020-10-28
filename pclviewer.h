@@ -63,7 +63,7 @@ private:
 
 	void cloudToPolygonMesh(pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud, pcl::PolygonMesh::Ptr& mesh);
 	void getNormal(boost::shared_ptr<pcl::PointCloud<pcl::PointXYZRGB>>& cloud_align_copy);
-	std::string getAngleNormals(int angle_threshold);
+	int getAngleNormals(int angle_threshold);
 	
 protected:
 	
@@ -74,7 +74,6 @@ protected:
 	
 	boost::shared_ptr<pcl::PointCloud<pcl::PointXYZRGB>> cloud_aligned;
 	boost::shared_ptr<pcl::PointCloud<pcl::PointXYZRGB>> cloud;
-	boost::shared_ptr<pcl::PointCloud<pcl::PointXYZRGB>> globalCloud;
 	pcl::PointCloud<pcl::Normal>::Ptr normals;
 	boost::shared_ptr<pcl::PointCloud<pcl::PointXYZRGB>> cloudFiltered;
 	std::vector< boost::shared_ptr<pcl::PointCloud<pcl::PointXYZRGB>> > clouds;
@@ -89,9 +88,6 @@ protected:
 	std::vector<TBasic::RSAlign> aligns;
 	TBasic::RSAlign transform_align;
 
-	std::vector<Eigen::Vector4d> expTagCenters;
-	std::vector<int> expTagAlreadyIn;
-	bool addTagCenter;
 
 
 	// For each TAG: Find first index by Tag ID (Tag.tag) * 14

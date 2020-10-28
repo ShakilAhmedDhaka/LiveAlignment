@@ -3,10 +3,8 @@
 #include "visualizer.h"
 
 #include <pcl/filters/voxel_grid.h>
-#include <pcl/surface/vtk_smoothing/vtk_utils.h>
 
 
-#define DISTANCE_EXP 1
 
 #define MINIMUM_CORNERS_IN_A_TAG 3
 #define PI_VAL 3.14159265
@@ -21,8 +19,6 @@ pclviewer::pclviewer(int argc, char** argv, QWidget *parent) :
 	this->setWindowTitle ("PCL viewer");
 	dbug.open("log.txt");
 	memset(points, 0, sizeof(points));
-	addTagCenter = false;
-	if (DISTANCE_EXP)	expTagAlreadyIn.resize(100,-1);
 
 	transform_align.m_s = 1;
 	transform_align.m_R = Eigen::Matrix<double, 3, 3>::Identity();
@@ -34,7 +30,6 @@ pclviewer::pclviewer(int argc, char** argv, QWidget *parent) :
 	// Setup the cloud pointer
 	cloud_aligned = boost::shared_ptr<pcl::PointCloud<pcl::PointXYZRGB>>(new pcl::PointCloud<pcl::PointXYZRGB>);
 	cloud = boost::shared_ptr<pcl::PointCloud<pcl::PointXYZRGB>>();
-	globalCloud = boost::shared_ptr<pcl::PointCloud<pcl::PointXYZRGB>>(new pcl::PointCloud<pcl::PointXYZRGB>);
 	normals = pcl::PointCloud<pcl::Normal>::Ptr(new pcl::PointCloud<pcl::Normal>);
 	// The number of points in the cloud
 	capture.capture_frame();
@@ -100,6 +95,24 @@ void pclviewer::closeEvent(QCloseEvent* event)
 {
 	reset_buttonPressed();
 	qtimer->stop();
+	cloud.reset();
+	cloud_aligned.reset();
+	normals.reset();
+	for (int i = meshes.size()-1; i >= 0; i--)
+	{
+		meshes[i].reset();
+	}
+	std::vector<pcl::PolygonMesh::Ptr>().swap(meshes);
+	std::vector<TBasic::RSAlign>().swap(aligns);
+	std::vector< std::vector<GLOBAL_HELPERS::Global_helpers::TagPoints> >().swap(tags);
+
+
+	viewer_aligned->removeAllPointClouds();
+	viewer_aligned.reset();
+	viewer->removeAllPointClouds();
+	viewer.reset();
+	dbug << "viewers closed" << std::endl;
+	dbug.close();
 	//capture.~Capture();
 }
 
@@ -129,7 +142,7 @@ void pclviewer::getNormal(boost::shared_ptr<pcl::PointCloud<pcl::PointXYZRGB>>& 
 }
 
 
-std::string pclviewer::getAngleNormals(int angle_threshold)
+int pclviewer::getAngleNormals(int angle_threshold)
 {
 	float in_angle_range = 0.0, valid_points = 0.0f, angle;
 	for (int i = 0; i < normals->width; i++)
@@ -162,16 +175,18 @@ std::string pclviewer::getAngleNormals(int angle_threshold)
 	int rem = int(percentage * 100.0f) % 100;
 	std::string percentage_str = std::to_string(div) + "." + std::to_string(rem) + "%";
 
-	return percentage_str;
+	return div;
 }
 
 void pclviewer::processFrameAndUpdateGUI()
 {
 	capture.capture_frame();
+
 	boost::shared_ptr<pcl::PointCloud<pcl::PointXYZRGB>> cloud_aligned_copy(new pcl::PointCloud<pcl::PointXYZRGB>(*cloud_aligned)); // deep copy
 	getNormal(cloud_aligned_copy); // calculates normals
 	// calculates percentage of angle (how many within 30 degree) between surface normals and z-axis of camera
-	std::string percentage_str = getAngleNormals(30);
+	int perc = getAngleNormals(30);
+	std::string percentage_str = std::to_string(perc) + "%";
 	
 	viewer_aligned->updatePointCloud(cloud_aligned_copy, "cloud_aligned");
 	viewer_aligned->removePointCloud("normals");
@@ -214,39 +229,41 @@ void pclviewer::processFrameAndUpdateGUI()
 		else
 		{
 			//std::cout << "********* See If Align **********" << std::endl;
-			if (MINIMUM_CORNERS_IN_A_TAG >= 3)
-			{
-				std::vector<GLOBAL_HELPERS::Global_helpers::TagPoints> threePoints;
-				if (atags[i].cloud_index != -1)	threePoints.push_back(atags[i]);
-				if (atags[i + 1].cloud_index != -1)	threePoints.push_back(atags[i + 1]);
-				if (atags[i + 2].cloud_index != -1)	threePoints.push_back(atags[i + 2]);
-				if (atags[i + 3].cloud_index != -1)	threePoints.push_back(atags[i + 3]);
+			//if (MINIMUM_CORNERS_IN_A_TAG >= 3)
+			//{
+			//	std::vector<GLOBAL_HELPERS::Global_helpers::TagPoints> threePoints;
+			//	if (atags[i].cloud_index != -1)	threePoints.push_back(atags[i]);
+			//	if (atags[i + 1].cloud_index != -1)	threePoints.push_back(atags[i + 1]);
+			//	if (atags[i + 2].cloud_index != -1)	threePoints.push_back(atags[i + 2]);
+			//	if (atags[i + 3].cloud_index != -1)	threePoints.push_back(atags[i + 3]);
 
-				if (threePoints.size() > 3)	threePoints.pop_back();
+			//	if (threePoints.size() > 3)	threePoints.pop_back();
 
-				//std::cout << "**************** Points Loaded ******************" << std::endl;
-				//std::cout << "**************** threePoints size: "<< threePoints.size() << std::endl;
-				if (threePoints.size() == 3)
-				{
-					Eigen::Vector3d vec1 = threePoints[1].point3D - threePoints[0].point3D;
-					Eigen::Vector3d vec2 = threePoints[2].point3D - threePoints[0].point3D;
+			//	//std::cout << "**************** Points Loaded ******************" << std::endl;
+			//	//std::cout << "**************** threePoints size: "<< threePoints.size() << std::endl;
+			//	if (threePoints.size() == 3)
+			//	{
+			//		//Eigen::Vector3d vec1 = threePoints[1].point3D - threePoints[0].point3D;
+			//		//Eigen::Vector3d vec2 = threePoints[2].point3D - threePoints[0].point3D;
 
-					//std::cout << "**************** Two Vectors ******************" << std::endl;
-					Eigen::Vector3d sNormal = vec1.cross(vec2);
-					sNormal = sNormal.normalized();
+			//		//std::cout << "**************** Two Vectors ******************" << std::endl;
+			//		//Eigen::Vector3d sNormal = vec1.cross(vec2);
+			//		//sNormal = sNormal.normalized();
 
-					//std::cout << "**************** Normalized ******************" << std::endl;
+			//		//std::cout << "**************** Normalized ******************" << std::endl;
 
-					Eigen::Vector3d zAxis = Eigen::Vector3d(0, 0, -1);
-					double angle = (acos(zAxis.dot(sNormal)) * 180.0) /  PI_VAL;
+			//		//Eigen::Vector3d zAxis = Eigen::Vector3d(0, 0, -1);
+			//		//double angle = (acos(zAxis.dot(sNormal)) * 180.0) /  PI_VAL;
 
-					if (angle <= 30) isCorrectAngle = true;
-					//std::cout << "****************Angle: " << angle << std::endl;
-				}
+			//		//if (angle <= 30) isCorrectAngle = true;
+			//		//if (perc <= 30) isCorrectAngle = true;
+			//		//std::cout << "****************Angle: " << angle << std::endl;
+			//	}
 
-				threePoints.clear();
-			}
+			//	threePoints.clear();
+			//}
 			
+			if (perc <= 30) isCorrectAngle = true;
 			apriltags.vis_apriltags(color_show, std::vector<GLOBAL_HELPERS::Global_helpers::TagPoints>(atags.begin() + i, atags.begin() + i + 4), 
 				width_offset, height_offset, false, false, false, true, isCorrectAngle);
 		}
@@ -313,9 +330,12 @@ std::map<int, std::vector<double> > pclviewer::getFeaturePoints(Capture& capture
 				tagsPresent[tags[i+j].tag].push_back(tags[i+j].centerx);
 				tagsPresent[tags[i+j].tag].push_back(tags[i+j].centery);
 			}
-			if (capture.project_colorcam_to_depthcam(tags[i+j].point, tags[i+j].cloud_index))
+
+
+			if (tags[i + j].point.y > 0 && tags[i + j].point.y < capture.color_mat.rows && tags[i + j].point.x > 0 && tags[i + j].point.x < capture.color_mat.cols)
 			{
-				if (cloud_aligned->points.at(tags[i+j].cloud_index).z == 0)
+				tags[i + j].cloud_index = tags[i + j].point.y * capture.color_mat.cols + tags[i + j].point.x;
+				if (cloud_aligned->points.at(tags[i+j].cloud_index).z == 0 || std::isnan(cloud_aligned->points.at(tags[i + j].cloud_index).z))
 				{
 					std::cout << "z==0" << std::endl;
 					tags[i+j].cloud_index = -1;
@@ -348,44 +368,6 @@ std::map<int, std::vector<double> > pclviewer::getFeaturePoints(Capture& capture
 				//tagsPresent[tags[i].tag][0] = 0.0;
 			}
 		}
-
-		if (addTagCenter)
-		{
-			if (expTagAlreadyIn[tags[i].tag] != -1)	continue;
-			Eigen::Vector4d expP;
-			cv::Point centP = cv::Point(tags[i].centerx, tags[i].centery);
-			if (capture.project_colorcam_to_depthcam(centP, tags[i].center_cloud_index))
-			{
-				expP[0] = tags[i].tag;
-				if (cloud_aligned->points.at(tags[i].center_cloud_index).z == 0)
-				{
-					dbug << "Could not find tag center of: " << tags[i].tag << std::endl;
-					expP[1] = -1;
-					expP[2] = -1;
-					expP[3] = -1;
-				}
-				else
-				{
-					pcl::PointXYZRGB cloud_point = cloud_aligned->points.at(tags[i].center_cloud_index);
-					expP[1] = cloud_point.x;
-					expP[2] = cloud_point.y;
-					expP[3] = cloud_point.z;
-				}
-			}
-			else
-			{
-				dbug << "Could not find tag center of: " << tags[i].tag << std::endl;
-				expP[1] = -1;
-				expP[2] = -1;
-				expP[3] = -1;
-			}
-
-
-			expTagCenters.push_back(expP);
-			expTagAlreadyIn[tags[i].tag] = 1;
-			addTagCenter = false;
-		}
-
 		
 	}
 
@@ -457,12 +439,11 @@ void pclviewer::storeMarkersAligned(int current_frame)
 
 void pclviewer::cloudToPolygonMesh(pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud, pcl::PolygonMesh::Ptr& mesh)
 {
-	dbug << "cloud height: " << cloud->height << " cloud width: " << cloud->width << std::endl;
 	pcl::PolygonMesh::Ptr old_mesh(new pcl::PolygonMesh);
 	pcl::OrganizedFastMesh<pcl::PointXYZRGB> fast_mesh;
 	fast_mesh.setInputCloud(cloud);
 	fast_mesh.reconstruct(*old_mesh);
-	dbug << "cloud height: " << cloud->height << " cloud width: " << cloud->width << std::endl;
+
 
 	mesh->polygons.clear();
 	mesh->cloud.data.clear();
@@ -548,7 +529,6 @@ void pclviewer::cloudToPolygonMesh(pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud,
 	int discarded_faces = 0, common_vertices = 0, average_depth_face = 0, discard_for_difference = 0;
 	mesh->polygons.resize(old_mesh->polygons.size());
 	std::vector<pcl::Vertices, std::allocator<pcl::Vertices>>::iterator face;
-	std::vector<std::vector<unsigned int>> temp_faces;
 	for (face = old_mesh->polygons.begin(); face != old_mesh->polygons.end(); face++)
 	{
 		unsigned int v1 = face->vertices[0];
@@ -589,29 +569,10 @@ void pclviewer::cloudToPolygonMesh(pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud,
 				{
 					
 				}
-
-				std::vector<unsigned int> tmp;
-				//pcl::Vertices newFace;
-				
-				tmp.push_back(indicesMap[v1]);
-				tmp.push_back(indicesMap[v2]);
-				tmp.push_back(indicesMap[v3]);
-				tmp.push_back(indicesMap[v4]);
-				temp_faces.push_back(tmp);
-				//newFace.vertices = { indicesMap[v1], indicesMap[v2], indicesMap[v3], indicesMap[v4] };
-				//mesh->polygons.push_back(newFace);
+				pcl::Vertices newFace;
+				newFace.vertices = { indicesMap[v1], indicesMap[v2], indicesMap[v3], indicesMap[v4] };
+				mesh->polygons.push_back(newFace);
 			}
-		}
-	}
-
-
-	mesh->polygons.resize(temp_faces.size());
-	for (int i = 0; i < temp_faces.size(); i++)
-	{
-		mesh->polygons[i].vertices.resize(4);
-		for (int j = 0; j < 4; j++)
-		{
-			mesh->polygons[i].vertices[j] = temp_faces[i][j];
 		}
 	}
 
@@ -632,8 +593,6 @@ void pclviewer::add_cloud_buttonPressed()
 		dbug << "adding pose: 0" << std::endl;
 		meshes.resize(1);
 		meshes[0] = pcl::PolygonMesh::Ptr(new pcl::PolygonMesh);
-		// keeping global cloud to later on create global mesh
-		*globalCloud += *cloud_aligned;
 		cloudToPolygonMesh(cloud_aligned, meshes[0]);
 
 		if (!viewer->addPolygonMesh(*meshes[cur_ser], meshids[cur_ser]))
@@ -643,8 +602,13 @@ void pclviewer::add_cloud_buttonPressed()
 
 		tags.resize(1);
 		apriltags.get_tags(capture.color_mat, tags[0], 1, 1,0);
-		if (DISTANCE_EXP)	addTagCenter = true;
 		getFeaturePoints(capture, tags[0]);
+		dbug << "tags:" << std::endl;
+		for (int i = 0; i < tags[0].size(); i++)
+		{
+			dbug << tags[0][i].tag << " " << tags[0][i].pos << std::endl;
+			dbug << tags[0][i].point3D[0] << " " << tags[0][i].point3D[1] << " " << tags[0][i].point3D[2] << std::endl;
+		}
 		//apriltags.filter_tag(tags[0]);
 		sort(tags[0].begin(), tags[0].end());
 		storeMarkersAligned(0);
@@ -664,8 +628,13 @@ void pclviewer::add_cloud_buttonPressed()
 
 		tags.resize(cur_ser + 1);
 		apriltags.get_tags(*captured_color, tags[cur_ser], 1, 1, cur_ser);
-		if (DISTANCE_EXP)	addTagCenter = true;
 		getFeaturePoints(capture, tags[cur_ser]);
+		dbug << "tags:" << std::endl;
+		for (int i = 0; i < tags[cur_ser].size(); i++)
+		{
+			dbug << tags[cur_ser][i].tag << " " << tags[cur_ser][i].pos << std::endl;
+			dbug << tags[cur_ser][i].point3D[0] << " " << tags[cur_ser][i].point3D[1] << " " << tags[cur_ser][i].point3D[2] << std::endl;
+		}
 		//apriltags.filter_tag(tags[cur_ser]);
 		sort(tags[cur_ser].begin(), tags[cur_ser].end());
 		different_tags = 0;
@@ -703,7 +672,6 @@ void pclviewer::add_cloud_buttonPressed()
 		std::cout << "Applying transformation" << std::endl;
 		aligns[cur_ser].compute_trans();
 		
-		*globalCloud += *transforming;
 		cloudToPolygonMesh(transforming, meshes[cur_ser]);
 
 		if (!viewer->addPolygonMesh(*meshes[cur_ser], meshids[cur_ser]))
@@ -755,24 +723,6 @@ void pclviewer::reset_buttonPressed()
 	ui->comboBox_clouds_serial->clear();
 	ui->comboBox_clouds_serial->addItem("NONE");
 
-	cloud.reset();
-	cloud_aligned.reset();
-	normals.reset();
-	for (int i = meshes.size() - 1; i >= 0; i--)
-	{
-		meshes[i].reset();
-	}
-	std::vector<pcl::PolygonMesh::Ptr>().swap(meshes);
-	std::vector<TBasic::RSAlign>().swap(aligns);
-	std::vector< std::vector<GLOBAL_HELPERS::Global_helpers::TagPoints> >().swap(tags);
-
-
-	viewer_aligned->removeAllPointClouds();
-	viewer_aligned.reset();
-	viewer->removeAllPointClouds();
-	viewer.reset();
-	dbug << "viewers closed" << std::endl;
-	dbug.close();
 	dbug << "resetting was done succesfully" << std::endl;
 }
 
@@ -912,209 +862,58 @@ void pclviewer::remove_cloud_buttonPressed()
 }
 
 
-
-
-
-
-void combinePolyData(vtkSmartPointer<vtkPolyData> poly_data1, vtkSmartPointer<vtkPolyData> poly_data2, vtkSmartPointer<vtkPolyData>& poly_data)
-{
-	//Append the two meshes
-	vtkSmartPointer<vtkAppendPolyData> appendFilter = vtkSmartPointer<vtkAppendPolyData>::New();
-	appendFilter->AddInputData(poly_data1);
-	appendFilter->AddInputData(poly_data2);
-
-	// Remove any duplicate points.
-	vtkSmartPointer<vtkCleanPolyData> cleanFilter = vtkSmartPointer<vtkCleanPolyData>::New();
-	cleanFilter->SetInputConnection(appendFilter->GetOutputPort());
-	cleanFilter->Update();
-
-	poly_data = cleanFilter->GetOutput();
-}
-
-
-void writePoly(pcl::PolygonMesh::Ptr mesh, std::string path)
-{
-	pcl::PointCloud<pcl::PointXYZRGB> cld;
-	pcl::fromPCLPointCloud2(mesh->cloud, cld);
-
-	std::ofstream ofile(path.c_str());
-	ofile << "ply" << endl;
-	ofile << "format ascii 1.0" << endl;
-	ofile << "comment PCL generated" << endl;
-	ofile << "element vertex " << cld.size() << endl;
-	ofile << "property float x" << endl;
-	ofile << "property float y" << endl;
-	ofile << "property float z" << endl;
-	ofile << "property uchar red" << endl;
-	ofile << "property uchar green" << endl;
-	ofile << "property uchar blue" << endl;
-	ofile << "element face " << mesh->polygons.size() << endl;
-	ofile << "property list uchar int vertex_indices" << endl;
-	ofile << "end_header" << endl;
-
-	for (int i = 0; i < cld.size(); i++)
-	{
-		ofile << cld.at(i).x << " " << cld.at(i).y << " " << cld.at(i).z << std::endl;
-			//cld.at(i).r << " " << cld.at(i).g << " " << cld.at(i).b << std::endl;
-	}
-
-	std::cout << "point data written" << std::endl;
-
-
-	std::vector<pcl::Vertices, std::allocator<pcl::Vertices>>::iterator face;
-	for (face = mesh->polygons.begin(); face != mesh->polygons.end(); face++)
-	{
-		unsigned int v1 = face->vertices[0];
-		unsigned int v2 = face->vertices[1];
-		unsigned int v3 = face->vertices[2];
-		unsigned int v4 = face->vertices[3];
-		ofile << v1 << " " << v2 << " " << v3 << " "<< v4 << std::endl;
-	}
-	
-	
-	std::cout << "face data written" << std::endl;
-}
-
-
 void pclviewer::save_data_buttonPressed()
 {
-	//for (int i = 0; i < clouds.size(); i++)
-	//{
-	//	std::ostringstream str_out, obj_file;
-	//	str_out << "../outputs/office/" << "capture_" << i << ".pcd";
-	//	obj_file << "../outputs/office/" << "capture_" << i << ".obj";
-	//	pcl::io::savePCDFileASCII(str_out.str().c_str(), *(clouds[i]));
-
-	//	std::ofstream outfile(obj_file.str().c_str());
-
-
-	//	pcl::PolygonMesh triangles;
-	//	pcl::OrganizedFastMesh<pcl::PointXYZRGB> ofm;
-
-	//	ofm.setInputCloud(clouds[i]);
-	//	ofm.setMaxEdgeLength(1.5);
-	//	ofm.setTrianglePixelSize(1);
-	//	ofm.setTriangulationType(pcl::OrganizedFastMesh<pcl::PointXYZRGB>::TRIANGLE_ADAPTIVE_CUT);
-
-	//	// Reconstruct
-	//	ofm.reconstruct(triangles);
-
-	//	outfile << "# Vertices: " << clouds[i]->size() << endl;
-	//	outfile << "# Faces: " << triangles.polygons.size() << endl;
-
-	//	for (int j = 0; j < (*clouds[i]).size(); j++)
-	//	{
-	//		std::string r = std::to_string(clouds[i]->at(j).r) + "";
-	//		std::string g = std::to_string(clouds[i]->at(j).g) + "";
-	//		std::string b = std::to_string(clouds[i]->at(j).b) + "";
-
-	//		//std::cout << "v " << clouds[i]->at(j).x << " " << clouds[i]->at(j).y << " " << clouds[i]->at(j).z << " " <<
-	//		//	r << " " << g << " " << b << endl;
-	//		outfile << "v " << clouds[i]->at(j).x << " " << clouds[i]->at(j).y << " " << clouds[i]->at(j).z << " " << 
-	//			r.c_str() << " " << g.c_str() << " " << b.c_str() <<endl;
-	//	}
-
-
-	//	
-
-	//	for (int i = 0; i < triangles.polygons.size(); i++)
-	//	{
-	//		pcl::Vertices face = triangles.polygons.at(i);
-	//		outfile << "f " << face.vertices[0] << " " << face.vertices[1] << " " << face.vertices[2] << endl;
-
-	//	}
-
-	//	outfile << "# End of File" << endl;
-
-	//	outfile.close();
-	//	//pcl::io::saveOBJFile(str_out.str() + ".obj", triangles);
-	//	std::cout << "saved " << str_out.str() + ".obj" << std::endl;
-	//}
-
-	//vtkSmartPointer<vtkPolyData> globalPoly = vtkSmartPointer<vtkPolyData>::New(); // OR poly_data->Reset();
-	//vtkSmartPointer<vtkPolyData> localPoly = vtkSmartPointer<vtkPolyData>::New(); // OR poly_data->Reset();
-	//vtkSmartPointer<vtkPolyData> poly_data;
-	//
-	//pcl::VTKUtils::mesh2vtk(*meshes[0], globalPoly);
-	//for (int i = 1; i < cur_ser; i++)
-	//{
-	//	pcl::VTKUtils::mesh2vtk(*meshes[0], localPoly);
-	//	combinePolyData(globalPoly, localPoly, poly_data);
-	//	globalPoly = poly_data;
-	//}
-
-	//pcl::PolygonMesh triangles;
-	////pcl::VTKUtils::convertToPCL(globalPoly, triangles);
-	//pcl::VTKUtils::vtk2mesh(globalPoly, triangles);
-
-
-	//std::cout << "Surface reconstruction done" << std::endl;
-	//std::cout << "Mesh total vertices: " << triangles.cloud.data.size() << std::endl;
-	//std::cout << "Mesh total faces: " << triangles.polygons.size() << std::endl;
-	//pcl::io::savePLYFile("E:/LiveAlignment/outputs/finalMesh.ply", triangles);
-	
-	//qtimer->stop(); 
-
-	std::string str = "E:/LiveAlignment/outputs/experiments_distance/finalMesh";
-	for (int i = 0; i < meshes.size(); i++)
+	for (int i = 0; i < clouds.size(); i++)
 	{
-		std::string path = str + std::to_string(i) + ".ply";
-		std::cout << "Saving: " << path << std::endl;
-		std::cout << "Mesh total vertices: " << meshes[i]->cloud.width << std::endl;
-		std::cout << "Mesh total faces: " << meshes[i]->polygons.size() << std::endl;
-		pcl::io::savePLYFile(path.c_str(), *meshes[i]);
-		//writePoly(meshes[i], path);
-	}
+		std::ostringstream str_out, obj_file;
+		str_out << "../outputs/office/" << "capture_" << i << ".pcd";
+		obj_file << "../outputs/office/" << "capture_" << i << ".obj";
+		pcl::io::savePCDFileASCII(str_out.str().c_str(), *(clouds[i]));
 
-	std::cout << "Meshes are saved" << std::endl;
+		std::ofstream outfile(obj_file.str().c_str());
 
-	double point_error = 0, global_error = 0;
-	std::vector<Eigen::Vector3d> dst;
-	for (int i = 1; i < aligns.size(); i++)
-	{
-		dbug << "Pair: " << i - 1 << "_" << i << ":" << std::endl;
-		dst.clear();
-		aligns[i].apply(aligns[i].m_points1, dst);
-		point_error = 0;
-		for (int j = 0; j < aligns[i].m_points2.size(); j++)
+
+		pcl::PolygonMesh triangles;
+		pcl::OrganizedFastMesh<pcl::PointXYZRGB> ofm;
+
+		ofm.setInputCloud(clouds[i]);
+		ofm.setMaxEdgeLength(1.5);
+		ofm.setTrianglePixelSize(1);
+		ofm.setTriangulationType(pcl::OrganizedFastMesh<pcl::PointXYZRGB>::TRIANGLE_ADAPTIVE_CUT);
+
+		// Reconstruct
+		ofm.reconstruct(triangles);
+
+		outfile << "# Vertices: " << clouds[i]->size() << endl;
+		outfile << "# Faces: " << triangles.polygons.size() << endl;
+
+		for (int j = 0; j < (*clouds[i]).size(); j++)
 		{
-			point_error += std::sqrt((aligns[i].m_points2[j] - dst[j]).norm());
+			std::string r = std::to_string(clouds[i]->at(j).r) + "";
+			std::string g = std::to_string(clouds[i]->at(j).g) + "";
+			std::string b = std::to_string(clouds[i]->at(j).b) + "";
+
+			//std::cout << "v " << clouds[i]->at(j).x << " " << clouds[i]->at(j).y << " " << clouds[i]->at(j).z << " " <<
+			//	r << " " << g << " " << b << endl;
+			outfile << "v " << clouds[i]->at(j).x << " " << clouds[i]->at(j).y << " " << clouds[i]->at(j).z << " " << 
+				r.c_str() << " " << g.c_str() << " " << b.c_str() <<endl;
 		}
 
-		global_error += point_error;
-		dbug << "Total error: " << point_error << std::endl;
-		dbug << "Average error: " << point_error / aligns[i].m_points2.size() << std::endl;
-	}
 
-	dbug << "Global Error: " << global_error << std::endl;
+		
 
-
-	if (DISTANCE_EXP)
-	{
-		dbug << std::endl;
-		dbug << "Experimentation for distances of markers:" << std::endl;
-		for (int i = 0; i < expTagCenters.size(); i++)
+		for (int i = 0; i < triangles.polygons.size(); i++)
 		{
-			for (int j = i + 1; j < expTagCenters.size(); j++)
-			{
-				Eigen::Vector3d p1 = Eigen::Vector3d(expTagCenters[i][1],
-					expTagCenters[i][2], expTagCenters[i][3]);
-				Eigen::Vector3d p2 = Eigen::Vector3d(expTagCenters[j][1],
-					expTagCenters[j][2], expTagCenters[j][3]);
-				if (p1[0] == -1 || p2[0] == -1)
-				{
-					if(p1[0] == -1)	dbug << "Tag: " << expTagCenters[i][0] << " is missing" << std::endl;
-					if(p2[0] == -1)	dbug << "Tag: " << expTagCenters[j][0] << " is missing" << std::endl;
-					continue;
-				}
+			pcl::Vertices face = triangles.polygons.at(i);
+			outfile << "f " << face.vertices[0] << " " << face.vertices[1] << " " << face.vertices[2] << endl;
 
-				double dist = (p1 - p2).norm();
-
-				dbug << "marker pair: " << expTagCenters[i][0] << "-" << expTagCenters[j][0] << ": " << dist << std::endl;
-			}
 		}
-	}
 
-	//reset_buttonPressed();
-	//QApplication::closeAllWindows();
+		outfile << "# End of File" << endl;
+
+		outfile.close();
+		//pcl::io::saveOBJFile(str_out.str() + ".obj", triangles);
+		std::cout << "saved " << str_out.str() + ".obj" << std::endl;
+	}
 }
