@@ -1,5 +1,7 @@
 # LiveAlignment
-A C++ application for 3D reconstruction of indoor scenes using fiducials. The application is interactive and online. While creating the 3D model, user can use the GUI provided to choose the camera poses. The GUI helps user choosing apropriate frames better for 3D reconstruction.
+A C++ application for 3D reconstruction of indoor scenes using fiducials. The application is interactive and online. While creating the 3D model, user can use the GUI provided to choose the camera poses. The GUI helps user choosing apropriate frames better for 3D reconstruction.  
+
+![3D reconstruction samples](samples/office1.jpg)
 
 ## Technical Details
 ### Supported OS
