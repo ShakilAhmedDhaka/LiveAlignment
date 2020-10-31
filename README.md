@@ -3,6 +3,11 @@ A C++ application for 3D reconstruction of indoor scenes using fiducials. The ap
 
 ![3D reconstruction samples](samples/office1.jpg)
 
+# Demo
+
+[![Project Demo](demo.png)](https://www.youtube.com/watch?v=Cg02UpUQYpQ) 
+
+
 ## Technical Details
 ### Supported OS
 Windows 10
